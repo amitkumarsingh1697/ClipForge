@@ -28,7 +28,40 @@ ollama pull llama3.1:8b
 Then open **AI settings** in the UI, choose Ollama and the model, and press Save, then Test LLM. LM Studio, llama.cpp and other OpenAI-compatible servers work too (URL like `http://localhost:1234/v1`). The Whisper model can be changed there as well.
 
 ## Publishing
-Open **Publishing** in the UI. YouTube: upload your Google OAuth client JSON (Desktop app) and press Connect YouTube. Instagram: a Professional account linked to a Facebook Page plus a Meta app token. Until one is connected, Approve saves the clip for you to download.
+Open **Publishing** in the UI. Until an account is connected, Approve just marks the clip approved so you can download it.
+
+### YouTube (Shorts or normal videos)
+1. Go to https://console.cloud.google.com, create a project (any name).
+2. **APIs & Services > Library**: enable **YouTube Data API v3**.
+3. **OAuth consent screen**: External, fill in app name and your email, add your Google account as a test user, then **Publish app** (In production). Testing mode tokens expire after 7 days.
+4. **Credentials > Create credentials > OAuth client ID > Desktop app**. Download the JSON.
+5. In the UI, upload that JSON and press **Connect YouTube**, then sign in and allow access. The token is saved in `secrets/` (never committed).
+
+Clips up to 3 min in vertical/portrait/square post as Shorts; longer or landscape clips post as normal videos.
+
+### Instagram Reels
+Needs an Instagram **Business or Creator** account linked to a Facebook Page, and a Meta developer app (https://developers.facebook.com) with the Instagram Graph API. Generate a long-lived user token with `instagram_basic`, `instagram_content_publish` and `pages_show_list`, then paste the app id, app secret and token into the Instagram form and press Save. The app checks the token and refreshes it automatically.
+
+## Update to the latest code
+```bash
+cd ClippingTool && git pull && source .venv/bin/activate && pip install -r requirements.txt
+pkill -f "app.cli serve"; nohup python -m app.cli serve > data/serve.log 2>&1 &
+```
+Then refresh the browser with Cmd+Shift+R. Logs are in `data/serve.log`.
+
+## Troubleshooting
+| Problem | Fix |
+|---|---|
+| Captions missing, "ffmpeg has no libass" | `brew install ffmpeg-full && brew link --force ffmpeg-full`, then restart. |
+| Captions empty (0 words) | Reinstall requirements: `pip install -r requirements.txt` (PyAV must be below 19). |
+| `SSL: UNEXPECTED_EOF` or download fails for YouTube/Twitch/Instagram | Your network (office/managed Wi-Fi) blocks those sites. Use a hotspot or VPN, or download the video and use the Upload tab. |
+| "Connect YouTube or Instagram" after Approve | No publisher connected yet; see Publishing above. |
+| Telegram says the video is too large | Clips over ~48 MB are sent as a smaller preview; the full file is in the UI. |
+| LLM test fails | Check `ollama list` shows the model and `brew services start ollama` is running. |
+| Port 8000 in use | `pkill -f "app.cli serve"` and start again. |
+
+## What is never committed
+`.env`, `secrets/`, `data/` (videos, settings, database) and any Ollama/model files (`.ollama/`, `models/`, `*.gguf`, `*.safetensors`, `*.bin`) are in `.gitignore`.
 
 ## Command line
 ```bash
