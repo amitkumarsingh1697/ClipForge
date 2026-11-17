@@ -35,7 +35,7 @@ Open **Publishing** in the UI. Until an account is connected, Approve just marks
 2. **APIs & Services > Library**: enable **YouTube Data API v3**.
 3. **OAuth consent screen**: External, fill in app name and your email, add your Google account as a test user, then **Publish app** (In production). Testing mode tokens expire after 7 days.
 4. **Credentials > Create credentials > OAuth client ID > Desktop app**. Download the JSON.
-5. In the UI, upload that JSON and press **Connect YouTube**, then sign in and allow access. The token is saved in `secrets/` (never committed).
+5. In the UI, upload that JSON and press **Connect YouTube**, then sign in and allow access. The token is saved in `data/secrets/` (never committed).
 
 Clips up to 3 min in vertical/portrait/square post as Shorts; longer or landscape clips post as normal videos.
 
@@ -61,7 +61,7 @@ Then refresh the browser with Cmd+Shift+R. Logs are in `data/serve.log`.
 | Port 8000 in use | `pkill -f "app.cli serve"` and start again. |
 
 ## What is never committed
-`.env`, `secrets/`, `data/` (videos, settings, database) and any Ollama/model files (`.ollama/`, `models/`, `*.gguf`, `*.safetensors`, `*.bin`) are in `.gitignore`.
+`.env`, `data/` (videos, settings, database, `data/secrets/` tokens), any `client_secret*.json` and any Ollama/model files (`.ollama/`, `models/`, `*.gguf`, `*.safetensors`, `*.bin`) are in `.gitignore`.
 
 ## Command line
 ```bash

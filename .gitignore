@@ -13,3 +13,7 @@ models/
 *.safetensors
 *.bin
 data/settings.json
+
+# credentials
+secrets/
+client_secret*.json
