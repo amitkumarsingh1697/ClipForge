@@ -73,3 +73,28 @@ def test_whisper_filter_drops_hallucinations():
     words = transcriber.filter_words(segs)
     assert [w.text for w in words] == ["get", "car"]
     assert transcriber.write_ass([], Path("/nonexistent.ass")) is None
+
+
+import pytest
+
+
+@pytest.mark.parametrize("fmt", ["portrait", "square", "landscape"])
+def test_render_other_formats_from_landscape(sample_video, tmp_path, fmt):
+    w, h = video_editor.format_size(fmt)
+    ass = transcriber.write_ass([transcriber.Word(0.2, 0.8, "hi")], tmp_path / "c.ass", w, h)
+    out = video_editor.render_clip(sample_video, tmp_path / f"{fmt}.mp4", 50, 56, ass_file=ass, out_w=w, out_h=h)
+    i = probe(out)
+    assert (i.width, i.height) == (w, h)
+
+
+def test_vertical_source_to_landscape_and_portrait(short_portrait, tmp_path):
+    info = probe(short_portrait)
+    assert "split=2" in video_editor.frame_filter(info, 0, 1920, 1080)        # much wider: blur-fit
+    assert video_editor.frame_filter(info, 0, 1080, 1350).startswith("crop=720:900")  # 9:16 -> 4:5: trim top/bottom
+    out = video_editor.render_clip(short_portrait, tmp_path / "l.mp4", 0, 5, out_w=1920, out_h=1080)
+    assert (probe(out).width, probe(out).height) == (1920, 1080)
+
+
+def test_unknown_format_rejected():
+    with pytest.raises(ValueError):
+        video_editor.format_size("diagonal")

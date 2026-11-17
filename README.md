@@ -1,25 +1,31 @@
-# gta-video-agent
+# Clip Agent
 
-Turns gameplay (phone uploads, video links, or live streams) into 1080×1920 captioned Shorts/Reels, asks for approval on Telegram, then publishes to YouTube and Instagram. Free, local models only. Design and fix log: `GTA_6_Video_Automation_Architecture.md`.
+Turns any video (a link, an uploaded file, or a live stream) into short captioned clips in the shapes you pick: **vertical 9:16, portrait 4:5, square 1:1, landscape 16:9**. It finds the most exciting moments by itself, lets you review them in a web UI or on Telegram, then publishes to YouTube and Instagram if you connect them. Free, local models only. It works for any video; the original design notes (`GTA_6_Video_Automation_Architecture.md`) started with GTA gameplay.
 
-## Try it without any accounts
+## Run it on a Mac
 ```bash
-sudo apt install ffmpeg fonts-dejavu-core
-python -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt
-DATA_DIR=./data python -m app.cli clip "https://www.youtube.com/watch?v=..."   # or a local .mp4
-DATA_DIR=./data python -m app.cli live "https://www.twitch.tv/<channel>" --minutes 20
+brew install ffmpeg python@3.12
+git clone https://github.com/amitkumarsingh1697/ClippingTool.git && cd ClippingTool
+python3.12 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
+cp .env.example .env
+python -m app.cli serve          # opens http://127.0.0.1:8000
 ```
-Clips land in `data/processed_clips/`. First run downloads the Whisper model (~500 MB for `small`).
+Paste a link, pick formats, press **Make clips**. Clips appear below with Approve / Reject / Download. The first run downloads the Whisper caption model (~500 MB).
 
-## Run the server
+## Connect Telegram
+1. In Telegram, message **@BotFather**, send `/newbot`, and copy the token.
+2. Put it in `.env` as `TELEGRAM_BOT_TOKEN=...`.
+3. Run `python -m app.cli telegram-setup` and send `/start` to your new bot. Your chat id is saved automatically.
+4. Restart `python -m app.cli serve`. Now send the bot any link (add words like `landscape square` to choose shapes) and approve clips from your phone.
+
+## Command line
 ```bash
-cp .env.example .env    # set API_TOKEN, TELEGRAM_*, and the publisher you want
-docker compose up -d --build
-docker compose run --rm -p 8765:8765 api python scripts/youtube_auth.py   # once, via ssh -L 8765:localhost:8765
-curl -H "X-API-Token: $API_TOKEN" -H 'content-type: application/json' \
-     -d '{"url":"https://..."}' http://<tailscale-ip>:8000/ingest/url
+python -m app.cli clip "https://www.youtube.com/watch?v=..." --formats vertical,landscape --clips 3
+python -m app.cli live "https://www.twitch.tv/CHANNEL" --minutes 20
 ```
-Or just send a link to your Telegram bot.
+
+## Server (Docker)
+`docker compose up -d --build` runs Redis, the API/UI, workers and the Telegram poller. Set `API_TOKEN` in `.env` and keep port 8000 behind Tailscale or an HTTPS tunnel.
 
 ## Tests
 `pytest -q` (generates synthetic videos with ffmpeg; no network or accounts needed).

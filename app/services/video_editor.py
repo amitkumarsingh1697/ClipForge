@@ -3,8 +3,8 @@
 FIXES vs the spec's `-vf "crop=ih*9/16:ih"`:
   1. ih*9/16 is usually odd (1080*9/16 = 607.5) and libx264 rejects odd widths
      with yuv420p, so the render fails. Width is rounded down to an even number.
-  2. That filter always crops the centre. GTA action (car chases, shootouts) is
-     often off-centre, so crop_x is chosen from where motion actually is.
+  2. That filter always crops the centre. the action in gameplay, sports or
+     streams is often off-centre, so crop_x is chosen from where motion actually is.
   3. Output was never scaled, so a 720p source produced a 405x720 "Short".
      Everything is scaled to 1080x1920.
   4. A phone that records the game *vertically* (or a vertical source URL)
@@ -25,17 +25,31 @@ from app.utils.media import MediaInfo, probe, run
 log = logging.getLogger(__name__)
 TARGET_ASPECT = 9 / 16
 
+# Output formats the user can pick per job.
+FORMATS: dict[str, tuple[int, int]] = {
+    "vertical": (1080, 1920),   # 9:16  Shorts / Reels / TikTok
+    "portrait": (1080, 1350),   # 4:5   Instagram / Facebook feed
+    "square": (1080, 1080),     # 1:1
+    "landscape": (1920, 1080),  # 16:9  YouTube / X
+}
+
+
+def format_size(name: str) -> tuple[int, int]:
+    if name not in FORMATS:
+        raise ValueError(f"unknown format {name!r}; choose from {', '.join(FORMATS)}")
+    return FORMATS[name]
+
 
 def even(x: float) -> int:
     return int(x) // 2 * 2
 
 
-def crop_width(info: MediaInfo) -> int:
-    return min(even(info.height * TARGET_ASPECT), even(info.width))
+def crop_width(info: MediaInfo, target_aspect: float = TARGET_ASPECT) -> int:
+    return min(even(info.height * target_aspect), even(info.width))
 
 
 def find_crop_x(video: Path, start: float, duration: float, info: MediaInfo,
-                samples: int = 24) -> int:
+                samples: int = 24, target_aspect: float = TARGET_ASPECT) -> int:
     """Pick the horizontal crop offset that keeps the most on-screen motion.
 
     Motion energy per column is summed over sampled frame pairs, multiplied by
@@ -44,7 +58,7 @@ def find_crop_x(video: Path, start: float, duration: float, info: MediaInfo,
     """
     import cv2
 
-    cw = crop_width(info)
+    cw = crop_width(info, target_aspect)
     if cw >= info.width:
         return 0
     centre = even((info.width - cw) / 2)
@@ -82,11 +96,20 @@ def find_crop_x(video: Path, start: float, duration: float, info: MediaInfo,
     return max(0, min(x, even(info.width - cw)))
 
 
-def vertical_filter(info: MediaInfo, crop_x: int, out_w: int, out_h: int) -> str:
-    if info.aspect > TARGET_ASPECT + 0.01:
-        cw = crop_width(info)
+def frame_filter(info: MediaInfo, crop_x: int, out_w: int, out_h: int) -> str:
+    """Filter that turns any source shape into out_w x out_h.
+
+    * source wider than target  -> crop the sides at crop_x (smart position)
+    * source a bit taller       -> crop top/bottom evenly (e.g. 9:16 -> 4:5)
+    * source much taller        -> fit over a blurred copy (e.g. 9:16 -> 16:9)
+    """
+    target = out_w / out_h
+    if info.aspect > target * 1.01:
+        cw = crop_width(info, target)
         return f"crop={cw}:{even(info.height)}:{crop_x}:0,scale={out_w}:{out_h}:flags=lanczos,setsar=1"
-    # Portrait / square: fit inside 9:16 over a blurred, zoomed background.
+    if info.aspect >= target * 0.7:
+        ch = min(even(info.width / target), even(info.height))
+        return f"crop={even(info.width)}:{ch}:0:(ih-{ch})/2,scale={out_w}:{out_h}:flags=lanczos,setsar=1"
     return (
         f"split=2[bg][fg];"
         f"[bg]scale={out_w}:{out_h}:force_original_aspect_ratio=increase,crop={out_w}:{out_h},boxblur=20:2[bgb];"
@@ -95,14 +118,18 @@ def vertical_filter(info: MediaInfo, crop_x: int, out_w: int, out_h: int) -> str
     )
 
 
-def render_vertical(src: Path, dst: Path, start: float, end: float, ass_file: Path | None = None,
-                    out_w: int = 1080, out_h: int = 1920, max_mb: float = 48.0,
-                    crop_x: int | None = None) -> Path:
+vertical_filter = frame_filter  # backwards-compatible name
+
+
+def render_clip(src: Path, dst: Path, start: float, end: float, ass_file: Path | None = None,
+                out_w: int = 1080, out_h: int = 1920, max_mb: float = 48.0,
+                crop_x: int | None = None) -> Path:
     info = probe(src)
     duration = max(0.5, min(end, info.duration) - start)
+    target = out_w / out_h
     if crop_x is None:
-        crop_x = find_crop_x(src, start, duration, info) if info.aspect > TARGET_ASPECT + 0.01 else 0
-    vf = vertical_filter(info, crop_x, out_w, out_h)
+        crop_x = find_crop_x(src, start, duration, info, target_aspect=target) if info.aspect > target * 1.01 else 0
+    vf = frame_filter(info, crop_x, out_w, out_h)
     cwd = None
     if ass_file is not None:
         # Run ffmpeg *in* the subtitle's folder and pass a bare file name: this
@@ -130,3 +157,6 @@ def render_vertical(src: Path, dst: Path, start: float, end: float, ass_file: Pa
     size_mb = dst.stat().st_size / 1024 / 1024
     log.info("rendered %s (%.1fs, %.1f MB, crop_x=%s)", dst.name, duration, size_mb, crop_x)
     return dst
+
+
+render_vertical = render_clip  # backwards-compatible name

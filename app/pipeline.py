@@ -17,10 +17,58 @@ from app.utils.job_store import get_store
 log = logging.getLogger(__name__)
 
 
+_pools: dict[str, "ThreadPoolExecutor"] = {}
+
+
+def _pool(name: str, workers: int):
+    from concurrent.futures import ThreadPoolExecutor
+
+    if name not in _pools:
+        _pools[name] = ThreadPoolExecutor(max_workers=workers, thread_name_prefix=name)
+    return _pools[name]
+
+
 def _dispatch(task_name: str, job_id: str) -> None:
+    mode = get_settings().mode
+    if mode == "thread":
+        fn = {"ingest_source_task": ingest_source, "render_clip_task": render_clip,
+              "publish_clip_task": publish_clip, "record_live_task": record_live}[task_name]
+        # one heavy video job at a time; live recorders and light work get their own pools
+        pool = _pool("live", 2) if task_name == "record_live_task" else \
+            _pool("work", 1) if task_name in ("ingest_source_task", "render_clip_task") else _pool("publish", 1)
+        pool.submit(fn, job_id)
+        return
     from app import celery_worker
 
     getattr(celery_worker, task_name).delay(job_id)
+
+
+def job_options(job: dict) -> dict:
+    """Per-job choices (from the UI/API), falling back to settings."""
+    s = get_settings()
+    o = dict((job.get("meta") or {}).get("options") or {})
+    o.setdefault("formats", [f.strip() for f in s.output_formats.split(",") if f.strip()])
+    o.setdefault("clips", s.clips_per_source)
+    o.setdefault("clip_seconds", s.clip_target_s)
+    o.setdefault("captions", s.captions_enabled)
+    return o
+
+
+def clean_options(formats=None, clips=None, clip_seconds=None, captions=None) -> dict:
+    s = get_settings()
+    o: dict = {}
+    if formats:
+        fs = [f.strip().lower() for f in (formats.split(",") if isinstance(formats, str) else formats) if f.strip()]
+        for f in fs:
+            video_editor.format_size(f)  # raises on unknown
+        o["formats"] = list(dict.fromkeys(fs))
+    if clips:
+        o["clips"] = max(1, min(10, int(clips)))
+    if clip_seconds:
+        o["clip_seconds"] = max(s.clip_min_s, min(s.clip_max_s, float(clip_seconds)))
+    if captions is not None:
+        o["captions"] = bool(captions)
+    return o
 
 
 def _notify(text: str) -> None:
@@ -33,19 +81,26 @@ def _notify(text: str) -> None:
 
 
 # ---------------------------------------------------------------- creation
-def submit(source_type: str, source: str, raw_path: Path | None = None, title: str | None = None) -> str:
+def submit(source_type: str, source: str, raw_path: Path | None = None, title: str | None = None,
+           options: dict | None = None) -> str:
     store = get_store()
     task = "record_live_task" if source_type == "live" else "ingest_source_task"
     job_id = store.create("source", source_type=source_type, source=source,
-                          raw_path=str(raw_path) if raw_path else None, title=title)
+                          raw_path=str(raw_path) if raw_path else None, title=title,
+                          meta={"options": options or {}})
     _dispatch(task, job_id)
     return job_id
 
 
-def submit_link(url: str) -> str:
-    """Used by the Telegram bot: a link that is live goes to the recorder, anything else is downloaded."""
-    job_id = submit("url", url)
-    return f"Queued {url} as job {job_id}. I'll send clips here for approval."
+def submit_link(url: str, text: str = "") -> str:
+    """Used by the Telegram bot: a link that is live goes to the recorder, anything else is downloaded.
+    Format words in the message ("landscape", "square", ...) choose the output shapes."""
+    words = set(text.lower().replace(",", " ").split())
+    fmts = [f for f in video_editor.FORMATS if f in words or (f == "landscape" and "horizontal" in words)]
+    opts = clean_options(fmts) if fmts else {}
+    job_id = submit("url", url, options=opts)
+    shapes = ", ".join(opts.get("formats") or job_options({})["formats"])
+    return f"Queued {url} ({shapes}) as job {job_id}. I'll send clips here for approval."
 
 
 # ---------------------------------------------------------------- ingest
@@ -70,15 +125,10 @@ def ingest_source(job_id: str) -> list[str]:
         if raw is None or not raw.exists():
             raise FileNotFoundError(f"raw file missing for job {job_id}")
         store.update(job_id, status="analyzing")
-        hls = highlight_ai.find_highlights(raw, s.temp_dir, target_s=s.clip_target_s, min_s=s.clip_min_s,
-                                           max_s=s.clip_max_s, top_n=s.clips_per_source)
-        clip_ids = []
-        base_title = title or Path(job["source"] or raw.name).stem
-        for n, h in enumerate(hls, 1):
-            t = base_title if len(hls) == 1 else f"{base_title} (part {n})"
-            cid = store.create("clip", parent_id=job_id, source_type=job["source_type"], source=job["source"],
-                               raw_path=str(raw), start_s=h.start, end_s=h.end, score=h.score, title=t)
-            clip_ids.append(cid)
+        opts = job_options(job)
+        hls = highlight_ai.find_highlights(raw, s.temp_dir, target_s=opts["clip_seconds"], min_s=s.clip_min_s,
+                                           max_s=s.clip_max_s, top_n=opts["clips"])
+        clip_ids = _make_clips(job_id, job, raw, hls, title, opts)
         store.update(job_id, status="done")
         for cid in clip_ids:
             _dispatch("render_clip_task", cid)
@@ -88,6 +138,22 @@ def ingest_source(job_id: str) -> list[str]:
         store.fail(job_id, f"{e}\n{traceback.format_exc()}")
         _notify(f"❌ Job {job_id} failed while ingesting: {e}")
         return []
+
+
+def _make_clips(parent_id: str, job: dict, raw: Path, hls, title: str | None, opts: dict,
+                name_prefix: str | None = None) -> list[str]:
+    """One clip job per (highlight, format)."""
+    store = get_store()
+    base_title = title or Path(job["source"] or raw.name).stem
+    ids = []
+    for n, h in enumerate(hls, 1):
+        t = name_prefix or (base_title if len(hls) == 1 else f"{base_title} (part {n})")
+        for fmt in opts["formats"]:
+            ids.append(store.create("clip", parent_id=parent_id, source_type=job["source_type"],
+                                    source=job["source"], raw_path=str(raw), start_s=h.start, end_s=h.end,
+                                    score=h.score, title=t,
+                                    meta={"format": fmt, "captions": opts["captions"]}))
+    return ids
 
 
 # ---------------------------------------------------------------- render
@@ -103,29 +169,31 @@ def render_clip(job_id: str) -> Path | None:
     try:
         raw = Path(job["raw_path"])
         start, end = float(job["start_s"]), float(job["end_s"])
+        fmt = job["meta"].get("format", "vertical")
+        out_w, out_h = video_editor.format_size(fmt)
         ass = None
         n_words = 0
-        if s.captions_enabled:
+        if job["meta"].get("captions", s.captions_enabled):
             try:
                 words = transcriber.transcribe_words(raw, s.temp_dir, start, end - start, model=s.whisper_model,
                                                      device=s.whisper_device, compute_type=s.whisper_compute_type,
                                                      language=s.whisper_language)
                 n_words = len(words)
-                ass = transcriber.write_ass(words, s.temp_dir / f"{job_id}.ass", s.output_width, s.output_height,
+                ass = transcriber.write_ass(words, s.temp_dir / f"{job_id}.ass", out_w, out_h,
                                             s.caption_words_per_line, s.caption_font)
             except Exception as e:  # captions are optional; never lose the clip over them
                 log.warning("captions skipped for %s: %s", job_id, e)
                 store.update(job_id, meta={"caption_error": str(e)[:300]})
         out = s.processed_dir / f"{job_id}.mp4"
-        video_editor.render_vertical(raw, out, start, end, ass_file=ass, out_w=s.output_width,
-                                     out_h=s.output_height, max_mb=s.max_output_mb)
+        video_editor.render_clip(raw, out, start, end, ass_file=ass, out_w=out_w, out_h=out_h,
+                                 max_mb=s.max_output_mb)
         if ass:
             ass.unlink(missing_ok=True)
         store.update(job_id, output_path=str(out), meta={"caption_words": n_words})
         store.transition(job_id, "rendering", "awaiting_approval")
         if s.telegram_bot_token and s.telegram_owner_chat_id:
             mid = telegram_bot.send_for_approval(
-                job_id, out, f"{job['title']}\n{end-start:.0f}s clip from {job['source'] or raw.name}")
+                job_id, out, f"{job['title']}\n{end-start:.0f}s {fmt} clip from {job['source'] or raw.name}")
             store.update(job_id, meta={"telegram_message_id": mid})
         return out
     except Exception as e:
@@ -174,7 +242,7 @@ def publish_clip(job_id: str) -> dict:
     if configured["youtube"] and not meta.get("youtube_id"):
         try:
             results["youtube_id"] = sp.upload_youtube(video, job["title"] or "Clip", caption,
-                                                      tags=["gaming", "shorts"])
+                                                      shorts=meta.get("format", "vertical") != "landscape")
         except Exception as e:
             errors.append(f"YouTube: {e}")
     if configured["instagram"] and not meta.get("instagram_id"):
@@ -190,7 +258,7 @@ def publish_clip(job_id: str) -> dict:
         store.update(job_id, status="published")
         links = []
         if results.get("youtube_id"):
-            links.append(f"https://youtube.com/shorts/{results['youtube_id']}")
+            links.append(f"https://youtu.be/{results['youtube_id']}")
         if results.get("instagram_id"):
             links.append(f"Instagram media {results['instagram_id']}")
         _notify("✅ Published: " + ", ".join(links))
@@ -204,6 +272,7 @@ def record_live(job_id: str, realtime_input: bool = False) -> list[str]:
     s, store = get_settings(), get_store()
     job = store.get(job_id)
     out_dir = s.live_dir / job_id
+    opts = job_options(job)
     clip_ids: list[str] = []
     try:
         store.update(job_id, status="recording")
@@ -226,12 +295,14 @@ def record_live(job_id: str, realtime_input: bool = False) -> list[str]:
             log.info("live %s %s score=%.4f baseline=%s highlight=%s", job_id, seg.name, score, baseline, is_hl)
             if not is_hl:
                 continue
-            h = highlight_ai.find_highlights(seg, s.temp_dir, s.clip_target_s, s.clip_min_s, s.clip_max_s, top_n=1)[0]
-            cid = store.create("clip", parent_id=job_id, source_type="live", source=job["source"],
-                               raw_path=str(seg), start_s=h.start, end_s=h.end, score=score,
-                               title=f"{job['title'] or 'Live highlight'} #{len(clip_ids) + 1}")
-            clip_ids.append(cid)
-            _dispatch("render_clip_task", cid)
+            h = highlight_ai.find_highlights(seg, s.temp_dir, opts["clip_seconds"], s.clip_min_s, s.clip_max_s,
+                                             top_n=1)[0]
+            h.score = score
+            new = _make_clips(job_id, job, seg, [h], job["title"], opts,
+                              name_prefix=f"{job['title'] or 'Live highlight'} #{len(clip_ids) // len(opts['formats']) + 1}")
+            clip_ids += new
+            for cid in new:
+                _dispatch("render_clip_task", cid)
         store.update(job_id, status="done", meta={"segments": len(history), "clips": len(clip_ids)})
     except Exception as e:
         log.exception("live recording failed")

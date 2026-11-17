@@ -1,7 +1,7 @@
 """faster-whisper implementation + caption file generation.
 
 FIXES vs the spec:
-  * GTA audio is mostly gunfire, engines and music. Plain Whisper on that audio
+  * Gameplay audio is mostly gunfire, engines and music. Plain Whisper on that audio
     hallucinates captions ("Thanks for watching!"). Audio is band-passed to the
     voice range and denoised first, Whisper's VAD filter is on, and segments
     with high no_speech probability or low confidence are dropped. A clip with
@@ -85,7 +85,9 @@ def _esc(text: str) -> str:
 
 def write_ass(words: list[Word], dst: Path, width: int = 1080, height: int = 1920,
               words_per_line: int = 3, font: str = "DejaVu Sans") -> Path | None:
-    """Big bold word-group captions. Returns None if there is nothing to show."""
+    """Big bold word-group captions. Returns None if there is nothing to show.
+
+    Vertical clips keep captions above the Shorts/Reels UI; other shapes sit near the bottom."""
     if not words:
         return None
     header = f"""[Script Info]
@@ -97,7 +99,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Cap,{font},{int(height*0.045)},&H00FFFFFF,&H0000FFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,6,2,2,60,60,{int(height*0.28)},1
+Style: Cap,{font},{int(min(width, height) * 0.08)},&H00FFFFFF,&H0000FFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,6,2,2,60,60,{int(height * (0.28 if height > width * 1.5 else 0.10))},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text

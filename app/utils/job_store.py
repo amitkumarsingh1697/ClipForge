@@ -90,6 +90,20 @@ class JobStore:
             rows = c.execute("SELECT * FROM jobs WHERE parent_id=? ORDER BY start_s", (job_id,)).fetchall()
         return [self._row(r) for r in rows]
 
+    def list_sources(self, limit: int = 50) -> list[dict[str, Any]]:
+        with self._conn() as c:
+            rows = c.execute("SELECT * FROM jobs WHERE kind='source' ORDER BY created_at DESC LIMIT ?",
+                             (limit,)).fetchall()
+        return [self._row(r) for r in rows]
+
+    def mark_interrupted(self) -> int:
+        """After a restart in thread mode, in-flight work is gone: mark it failed so it can be retried."""
+        with self._conn() as c:
+            cur = c.execute("UPDATE jobs SET status='failed', error='interrupted by restart', updated_at=? "
+                            "WHERE status IN ('downloading','recording','analyzing','rendering','publishing','queued')",
+                            (time.time(),))
+            return cur.rowcount
+
     def update(self, job_id: str, **fields: Any) -> None:
         if "meta" in fields:
             current = (self.get(job_id) or {}).get("meta", {})

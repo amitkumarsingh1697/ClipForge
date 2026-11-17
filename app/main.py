@@ -17,7 +17,8 @@ import shutil
 import uuid
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel, HttpUrl
 
 from app import pipeline
@@ -28,19 +29,71 @@ from app.utils.job_store import get_store
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 app = FastAPI(title="Clip Agent")
 ALLOWED_EXT = {".mp4", ".mov", ".mkv", ".webm", ".m4v"}
+UI_FILE = Path(__file__).parent / "static" / "index.html"
+LOCAL_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
 
 
-def require_token(x_api_token: str = Header(default="")) -> None:
+def require_token(request: Request, x_api_token: str = Header(default=""),
+                  token: str = Query(default="")) -> None:
+    """X-API-Token header (or ?token= for <video> tags). With no API_TOKEN set,
+    only requests from this machine are allowed (local Mac use)."""
     expected = get_settings().api_token
+    given = x_api_token or token
     if not expected:
+        if request.client and request.client.host in LOCAL_HOSTS:
+            return
         raise HTTPException(503, "API_TOKEN is not configured on the server")
-    if not hmac.compare_digest(x_api_token, expected):
+    if not hmac.compare_digest(given, expected):
         raise HTTPException(401, "bad or missing X-API-Token")
 
 
 class UrlIn(BaseModel):
     url: HttpUrl
     title: str | None = None
+    formats: list[str] | str | None = None   # vertical, portrait, square, landscape
+    clips: int | None = None
+    clip_seconds: float | None = None
+    captions: bool | None = None
+
+    def options(self) -> dict:
+        try:
+            return pipeline.clean_options(self.formats, self.clips, self.clip_seconds, self.captions)
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+
+
+@app.get("/", response_class=HTMLResponse, include_in_schema=False)
+def ui():
+    return UI_FILE.read_text(encoding="utf-8")
+
+
+@app.get("/api/config", dependencies=[Depends(require_token)])
+def api_config():
+    from app.services.social_publisher import publishers_configured
+    from app.services.video_editor import FORMATS
+
+    s = get_settings()
+    return {"formats": {k: f"{w}x{h}" for k, (w, h) in FORMATS.items()},
+            "default_formats": [f.strip() for f in s.output_formats.split(",") if f.strip()],
+            "clips": s.clips_per_source, "clip_seconds": s.clip_target_s,
+            "clip_min_s": s.clip_min_s, "clip_max_s": s.clip_max_s, "captions": s.captions_enabled,
+            "telegram": bool(s.telegram_bot_token and s.telegram_owner_chat_id),
+            **publishers_configured()}
+
+
+@app.get("/api/jobs", dependencies=[Depends(require_token)])
+def api_jobs(limit: int = 30):
+    store = get_store()
+    return [{**j, "clips": store.children(j["id"])} for j in store.list_sources(limit)]
+
+
+@app.get("/media/{job_id}.mp4", dependencies=[Depends(require_token)])
+def media(job_id: str):
+    job = get_store().get(job_id)
+    if not job or not job.get("output_path") or not Path(job["output_path"]).exists():
+        raise HTTPException(404)
+    return FileResponse(job["output_path"], media_type="video/mp4",
+                        filename=f"{ingest.safe_name(job['title'] or job_id)}_{job['meta'].get('format', '')}.mp4")
 
 
 @app.get("/health")
@@ -49,8 +102,14 @@ def health():
 
 
 @app.post("/upload", dependencies=[Depends(require_token)])
-async def upload(file: UploadFile = File(...)):
+async def upload(file: UploadFile = File(...), formats: str | None = Form(None), clips: int | None = Form(None),
+                 clip_seconds: float | None = Form(None), captions: bool | None = Form(None),
+                 title: str | None = Form(None)):
     s = get_settings()
+    try:
+        opts = pipeline.clean_options(formats, clips, clip_seconds, captions)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
     ext = Path(file.filename or "").suffix.lower()
     if ext not in ALLOWED_EXT:
         raise HTTPException(415, f"unsupported file type {ext!r}")
@@ -64,18 +123,21 @@ async def upload(file: UploadFile = File(...)):
                 dst.unlink(missing_ok=True)
                 raise HTTPException(413, f"file exceeds {s.max_upload_mb} MB")
             out.write(chunk)
-    job_id = pipeline.submit("upload", file.filename, raw_path=dst, title=Path(file.filename).stem)
+    job_id = pipeline.submit("upload", file.filename, raw_path=dst, title=title or Path(file.filename).stem,
+                             options=opts)
     return {"status": "processing", "job_id": job_id}
 
 
 @app.post("/ingest/url", dependencies=[Depends(require_token)])
 def ingest_url(body: UrlIn):
-    return {"status": "processing", "job_id": pipeline.submit("url", str(body.url), title=body.title)}
+    return {"status": "processing",
+            "job_id": pipeline.submit("url", str(body.url), title=body.title, options=body.options())}
 
 
 @app.post("/ingest/live", dependencies=[Depends(require_token)])
 def ingest_live(body: UrlIn):
-    return {"status": "recording", "job_id": pipeline.submit("live", str(body.url), title=body.title)}
+    return {"status": "recording",
+            "job_id": pipeline.submit("live", str(body.url), title=body.title, options=body.options())}
 
 
 @app.post("/ingest/live/{job_id}/stop", dependencies=[Depends(require_token)])

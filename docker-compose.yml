@@ -8,7 +8,7 @@ services:
     build: .
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     env_file: .env
-    environment: { REDIS_URL: "redis://redis:6379/0" }
+    environment: { REDIS_URL: "redis://redis:6379/0", TASK_MODE: celery, DATA_DIR: /data }
     ports: ["8000:8000"]          # put this behind Tailscale or an HTTPS tunnel, not the open internet
     volumes: ["./data:/data"]
     depends_on: [redis]
@@ -18,7 +18,7 @@ services:
     build: .
     command: celery -A app.celery_worker.celery_app worker -Q celery --concurrency=1 --loglevel=info
     env_file: .env
-    environment: { REDIS_URL: "redis://redis:6379/0" }
+    environment: { REDIS_URL: "redis://redis:6379/0", TASK_MODE: celery, DATA_DIR: /data }
     volumes: ["./data:/data"]
     depends_on: [redis]
     restart: unless-stopped
@@ -29,7 +29,7 @@ services:
     build: .
     command: celery -A app.celery_worker.celery_app worker -Q live --concurrency=2 --loglevel=info
     env_file: .env
-    environment: { REDIS_URL: "redis://redis:6379/0" }
+    environment: { REDIS_URL: "redis://redis:6379/0", TASK_MODE: celery, DATA_DIR: /data }
     volumes: ["./data:/data"]
     depends_on: [redis]
     restart: unless-stopped
@@ -38,7 +38,7 @@ services:
     build: .
     command: python -m app.cli poll
     env_file: .env
-    environment: { REDIS_URL: "redis://redis:6379/0" }
+    environment: { REDIS_URL: "redis://redis:6379/0", TASK_MODE: celery, DATA_DIR: /data }
     volumes: ["./data:/data"]
     depends_on: [redis]
     restart: unless-stopped

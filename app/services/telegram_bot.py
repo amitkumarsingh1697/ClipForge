@@ -98,9 +98,16 @@ def handle_update(update: dict, on_approve: Callable[[str], str], on_reject: Cal
     if msg and int(msg.get("from", {}).get("id", 0)) == owner:
         from app.services.ingest import extract_url
 
-        url = extract_url(msg.get("text") or msg.get("caption") or "")
+        text = msg.get("text") or msg.get("caption") or ""
+        if text.strip().lower() in ("/start", "/help"):
+            send_text("Send me a video or live-stream link. Add format words to choose the shape, e.g.\n"
+                      "https://youtu.be/... landscape square\n"
+                      "Formats: vertical (9:16), portrait (4:5), square (1:1), landscape (16:9).",
+                      chat_id=msg["chat"]["id"])
+            return "help"
+        url = extract_url(text)
         if url:
-            result = on_link(url)
+            result = on_link(url, text)
             send_text(result, chat_id=msg["chat"]["id"])
             return result
     return None

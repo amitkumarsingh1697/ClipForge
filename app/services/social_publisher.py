@@ -36,14 +36,15 @@ class PublishError(RuntimeError):
     pass
 
 
-def youtube_title(title: str) -> str:
+def youtube_title(title: str, shorts: bool = True) -> str:
     t = " ".join(title.split())
-    if "#shorts" not in t.lower():
+    if shorts and "#shorts" not in t.lower():
         t = f"{t} #Shorts"
     return t[:100]
 
 
-def upload_youtube(video: Path, title: str, description: str, tags: list[str] | None = None) -> str:
+def upload_youtube(video: Path, title: str, description: str, tags: list[str] | None = None,
+                   shorts: bool = True) -> str:
     from googleapiclient.discovery import build
     from googleapiclient.errors import HttpError
     from googleapiclient.http import MediaFileUpload
@@ -51,7 +52,7 @@ def upload_youtube(video: Path, title: str, description: str, tags: list[str] | 
     s = get_settings()
     yt = build("youtube", "v3", credentials=youtube_credentials(), cache_discovery=False)
     body = {
-        "snippet": {"title": youtube_title(title), "description": description[:4900],
+        "snippet": {"title": youtube_title(title, shorts), "description": description[:4900],
                     "tags": (tags or [])[:30], "categoryId": s.youtube_category_id},
         "status": {"privacyStatus": s.youtube_privacy, "selfDeclaredMadeForKids": False},
     }

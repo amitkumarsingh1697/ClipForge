@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clip Agent</title>
+<style>
+:root {
+  --bg: #f6f6f4; --panel: #ffffff; --text: #1b1b1a; --muted: #6b6b66; --line: #e3e3de;
+  --accent: #d9480f; --accent-ink: #ffffff; --ok: #2b8a3e; --warn: #b7791f; --bad: #c92a2a; --chip: #efefea;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #151514; --panel: #1f1f1d; --text: #ecece8; --muted: #9a9a93; --line: #33332f;
+    --accent: #ff7a3d; --accent-ink: #1a0d05; --ok: #51cf66; --warn: #fcc419; --bad: #ff6b6b; --chip: #2a2a27;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif; }
+header { display: flex; align-items: center; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 0; z-index: 2; flex-wrap: wrap; }
+header h1 { font-size: 18px; margin: 0; letter-spacing: -0.01em; }
+.pills { display: flex; gap: 6px; margin-left: auto; flex-wrap: wrap; }
+.pill { font-size: 12px; padding: 3px 9px; border-radius: 99px; background: var(--chip); color: var(--muted); }
+.pill.on { color: var(--ok); }
+main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 60px; display: grid; gap: 20px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
+.tabs { display: flex; gap: 4px; margin-bottom: 14px; background: var(--chip); padding: 4px; border-radius: 9px; width: fit-content; }
+.tabs button { border: 0; background: transparent; color: var(--muted); padding: 6px 14px; border-radius: 6px; font: inherit; cursor: pointer; }
+.tabs button.active { background: var(--panel); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+label.field { display: block; font-size: 13px; color: var(--muted); margin: 0 0 6px; }
+input[type=url], input[type=text], input[type=password], input[type=number] { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; }
+input[type=file] { font: inherit; color: var(--muted); max-width: 100%; }
+.row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-top: 16px; }
+.formats { display: flex; gap: 8px; flex-wrap: wrap; }
+.fmt { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 9px; padding: 8px 12px; cursor: pointer; user-select: none; background: var(--bg); }
+.fmt input { display: none; }
+.fmt .shape { border: 2px solid var(--muted); border-radius: 2px; }
+.fmt.on { border-color: var(--accent); }
+.fmt.on .shape { border-color: var(--accent); }
+.fmt small { color: var(--muted); }
+.actions { display: flex; gap: 10px; align-items: center; margin-top: 18px; flex-wrap: wrap; }
+button.primary { background: var(--accent); color: var(--accent-ink); border: 0; padding: 10px 18px; border-radius: 8px; font: inherit; font-weight: 600; cursor: pointer; }
+button.primary:disabled { opacity: .5; cursor: default; }
+.btn { border: 1px solid var(--line); background: var(--panel); color: var(--text); padding: 6px 11px; border-radius: 7px; font: inherit; font-size: 13px; cursor: pointer; text-decoration: none; display: inline-block; }
+.btn.ok { border-color: var(--ok); color: var(--ok); }
+.btn.bad { border-color: var(--bad); color: var(--bad); }
+.msg { font-size: 13px; color: var(--muted); }
+.msg.err { color: var(--bad); }
+h2 { font-size: 15px; margin: 0 0 12px; }
+.job { border-top: 1px solid var(--line); padding: 14px 0; }
+.job:first-of-type { border-top: 0; }
+.job-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.job-title { font-weight: 600; overflow-wrap: anywhere; }
+.meta { color: var(--muted); font-size: 12px; }
+.status { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; padding: 2px 7px; border-radius: 5px; background: var(--chip); color: var(--muted); }
+.status.awaiting_approval { color: var(--warn); }
+.status.published, .status.done { color: var(--ok); }
+.status.failed, .status.rejected { color: var(--bad); }
+.clips { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; margin-top: 12px; align-items: start; }
+.clip { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--bg); display: flex; flex-direction: column; }
+.clip .frame { background: #000; display: flex; align-items: center; justify-content: center; aspect-ratio: 9/16; }
+.clip .frame.landscape { aspect-ratio: 16/9; } .clip .frame.square { aspect-ratio: 1; } .clip .frame.portrait { aspect-ratio: 4/5; }
+.clip video { width: 100%; height: 100%; object-fit: contain; display: block; }
+.clip .frame .ph { color: #888; font-size: 13px; }
+.clip .info { padding: 10px; display: grid; gap: 8px; }
+.clip .btns { display: flex; gap: 6px; flex-wrap: wrap; }
+.err-text { color: var(--bad); font-size: 12px; overflow-wrap: anywhere; max-height: 4.5em; overflow: hidden; }
+.empty { color: var(--muted); padding: 10px 0; }
+.hidden { display: none !important; }
+.switch { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+@media (max-width: 520px) { header { padding: 12px 16px; } .panel { padding: 14px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Clip Agent</h1>
+  <div class="pills" id="pills"></div>
+</header>
+<main>
+  <section class="panel hidden" id="auth">
+    <h2>API token</h2>
+    <p class="msg">This server needs the API_TOKEN from its .env file.</p>
+    <input type="password" id="token" placeholder="Paste API token">
+    <div class="actions"><button class="primary" id="saveToken">Save</button></div>
+  </section>
+
+  <section class="panel" id="create">
+    <div class="tabs" role="tablist">
+      <button class="active" data-src="url">Video link</button>
+      <button data-src="upload">Upload file</button>
+      <button data-src="live">Live stream</button>
+    </div>
+    <div id="src-url"><label class="field">YouTube, Twitch, Kick, X, Instagram, Reddit or a direct video URL</label><input type="url" id="url" placeholder="https://..."></div>
+    <div id="src-upload" class="hidden"><label class="field">Video file (.mp4 .mov .mkv .webm)</label><input type="file" id="file" accept="video/*"></div>
+    <div id="src-live" class="hidden"><label class="field">Live channel or stream URL. Records and cuts clips whenever something exciting happens.</label><input type="url" id="live" placeholder="https://www.twitch.tv/channel"></div>
+
+    <div style="margin-top:16px">
+      <label class="field">Formats (pick one or more)</label>
+      <div class="formats" id="formats"></div>
+    </div>
+    <div class="row">
+      <div><label class="field">Clips per video</label><input type="number" id="clips" min="1" max="10"></div>
+      <div><label class="field">Clip length: <span id="lenOut"></span>s</label><input type="range" id="len" style="width:100%"></div>
+      <div><label class="field">Title (optional)</label><input type="text" id="title" placeholder="From the video"></div>
+      <div><label class="field">Captions</label><label class="switch"><input type="checkbox" id="captions"> Burn in captions</label></div>
+    </div>
+    <div class="actions">
+      <button class="primary" id="go">Make clips</button>
+      <span class="msg" id="formMsg"></span>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Jobs</h2>
+    <div id="jobs"><div class="empty">No jobs yet.</div></div>
+  </section>
+</main>
+<script>
+const FORMAT_INFO = {
+  vertical: ["9:16", "Shorts, Reels, TikTok", 12, 21],
+  portrait: ["4:5", "Instagram feed", 16, 20],
+  square: ["1:1", "Feed posts", 18, 18],
+  landscape: ["16:9", "YouTube, X", 24, 14],
+};
+let token = "";
+try { token = localStorage.getItem("clipToken") || ""; } catch (e) {}
+let source = "url";
+const $ = (id) => document.getElementById(id);
+
+async function api(path, opts = {}) {
+  opts.headers = Object.assign({}, opts.headers || {}, token ? { "X-API-Token": token } : {});
+  const r = await fetch(path, opts);
+  if (r.status === 401 || r.status === 503) { $("auth").classList.remove("hidden"); throw new Error("Needs API token"); }
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body.detail ? (typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail)) : r.statusText);
+  return body;
+}
+const mediaUrl = (id) => `/media/${id}.mp4${token ? "?token=" + encodeURIComponent(token) : ""}`;
+
+$("saveToken").onclick = () => {
+  token = $("token").value.trim();
+  try { localStorage.setItem("clipToken", token); } catch (e) {}
+  $("auth").classList.add("hidden");
+  init();
+};
+
+document.querySelectorAll(".tabs button").forEach((b) => b.onclick = () => {
+  document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("active", x === b));
+  source = b.dataset.src;
+  ["url", "upload", "live"].forEach((s) => $("src-" + s).classList.toggle("hidden", s !== source));
+  $("go").textContent = source === "live" ? "Start recording" : "Make clips";
+});
+
+function renderFormats(defaults) {
+  $("formats").innerHTML = "";
+  for (const [name, [ratio, use, w, h]] of Object.entries(FORMAT_INFO)) {
+    const el = document.createElement("label");
+    el.className = "fmt" + (defaults.includes(name) ? " on" : "");
+    el.innerHTML = `<input type="checkbox" value="${name}" ${defaults.includes(name) ? "checked" : ""}>
+      <span class="shape" style="width:${w}px;height:${h}px"></span>
+      <span><b>${name[0].toUpperCase() + name.slice(1)}</b> ${ratio}<br><small>${use}</small></span>`;
+    el.querySelector("input").onchange = (e) => el.classList.toggle("on", e.target.checked);
+    $("formats").appendChild(el);
+  }
+}
+const chosenFormats = () => [...document.querySelectorAll("#formats input:checked")].map((i) => i.value);
+
+$("go").onclick = async () => {
+  const formats = chosenFormats();
+  const msg = $("formMsg");
+  msg.className = "msg";
+  if (!formats.length) { msg.textContent = "Pick at least one format."; msg.className = "msg err"; return; }
+  const common = { formats, clips: +$("clips").value, clip_seconds: +$("len").value, captions: $("captions").checked,
+                   title: $("title").value.trim() || null };
+  $("go").disabled = true;
+  try {
+    let res;
+    if (source === "upload") {
+      const f = $("file").files[0];
+      if (!f) throw new Error("Choose a file first.");
+      const fd = new FormData();
+      fd.append("file", f);
+      fd.append("formats", formats.join(","));
+      fd.append("clips", common.clips); fd.append("clip_seconds", common.clip_seconds);
+      fd.append("captions", common.captions);
+      if (common.title) fd.append("title", common.title);
+      msg.textContent = "Uploading…";
+      res = await api("/upload", { method: "POST", body: fd });
+    } else {
+      const url = (source === "live" ? $("live") : $("url")).value.trim();
+      if (!url) throw new Error("Paste a link first.");
+      res = await api(source === "live" ? "/ingest/live" : "/ingest/url",
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url, ...common }) });
+    }
+    msg.textContent = `Started job ${res.job_id}.`;
+    $("url").value = ""; $("live").value = ""; $("file").value = ""; $("title").value = "";
+    refresh();
+  } catch (e) { msg.textContent = e.message; msg.className = "msg err"; }
+  $("go").disabled = false;
+};
+
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fmtTime = (t) => new Date(t * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+const LABEL = { awaiting_approval: "ready for review", downloading: "downloading", analyzing: "finding highlights",
+  rendering: "rendering", recording: "recording live", publishing: "publishing" };
+
+function clipHtml(c) {
+  const fmt = (c.meta && c.meta.format) || "vertical";
+  const hasVideo = ["awaiting_approval", "publishing", "published"].includes(c.status) || (c.status === "failed" && c.output_path);
+  const dur = c.end_s != null ? `${Math.round(c.start_s)}–${Math.round(c.end_s)}s` : "";
+  let btns = "";
+  if (c.status === "awaiting_approval") btns += `<button class="btn ok" data-act="approve" data-id="${c.id}">Approve &amp; publish</button><button class="btn bad" data-act="reject" data-id="${c.id}">Reject</button>`;
+  if (c.status === "failed") btns += `<button class="btn" data-act="retry" data-id="${c.id}">Retry</button>`;
+  if (hasVideo) btns += `<a class="btn" href="${mediaUrl(c.id)}" download>Download</a>`;
+  const links = [];
+  if (c.meta && c.meta.youtube_id) links.push(`<a href="https://youtu.be/${esc(c.meta.youtube_id)}" target="_blank" rel="noopener">YouTube</a>`);
+  if (c.meta && c.meta.instagram_id) links.push("Instagram ✓");
+  return `<div class="frame ${fmt}">${hasVideo ? `<video src="${mediaUrl(c.id)}" controls preload="metadata" playsinline></video>` : `<span class="ph">${esc(LABEL[c.status] || c.status)}…</span>`}</div>
+    <div class="info">
+      <div><span class="status ${c.status}">${esc(LABEL[c.status] || c.status)}</span> <span class="meta">${esc(fmt)} · ${dur}</span></div>
+      ${links.length ? `<div class="meta">${links.join(" · ")}</div>` : ""}
+      ${c.status === "failed" && c.error ? `<div class="err-text">${esc(c.error.split("\n")[0])}</div>` : ""}
+      <div class="btns">${btns}</div>
+    </div>`;
+}
+
+function jobHead(j) {
+  const kind = { url: "Link", upload: "Upload", live: "Live" }[j.source_type] || j.source_type;
+  let extra = "";
+  if (j.source_type === "live" && j.status === "recording") extra = `<button class="btn bad" data-act="stop" data-id="${j.id}">Stop recording</button>`;
+  if (j.status === "failed") extra = `<button class="btn" data-act="retry" data-id="${j.id}">Retry</button>`;
+  return `<div class="job-head"><span class="job-title">${esc(j.title || j.source)}</span>
+    <span class="status ${j.status}">${esc(LABEL[j.status] || j.status)}</span>
+    <span class="meta">${kind} · ${fmtTime(j.created_at)} · ${j.clips.length} clip${j.clips.length === 1 ? "" : "s"}</span>${extra}</div>
+    ${j.status === "failed" && j.error ? `<div class="err-text">${esc(j.error.split("\n")[0])}</div>` : ""}`;
+}
+
+// Keyed rendering: only redraw pieces whose status changed so playing videos aren't reset.
+const seen = {};
+function renderJobs(jobs) {
+  const root = $("jobs");
+  if (!jobs.length) { root.innerHTML = '<div class="empty">No jobs yet. Paste a link above.</div>'; return; }
+  root.querySelector(".empty")?.remove();
+  jobs.forEach((j, idx) => {
+    let el = document.getElementById("job-" + j.id);
+    if (!el) {
+      el = document.createElement("div"); el.className = "job"; el.id = "job-" + j.id;
+      el.innerHTML = '<div class="head"></div><div class="clips"></div>';
+      root.insertBefore(el, root.children[idx] || null);
+    }
+    const headKey = j.status + j.clips.length + (j.error || "");
+    if (seen["h" + j.id] !== headKey) { el.querySelector(".head").innerHTML = jobHead(j); seen["h" + j.id] = headKey; }
+    const grid = el.querySelector(".clips");
+    j.clips.forEach((c) => {
+      let ce = document.getElementById("clip-" + c.id);
+      if (!ce) { ce = document.createElement("div"); ce.className = "clip"; ce.id = "clip-" + c.id; grid.appendChild(ce); }
+      const key = c.status + JSON.stringify(c.meta || {}) + (c.error || "");
+      if (seen[c.id] !== key) { ce.innerHTML = clipHtml(c); seen[c.id] = key; }
+    });
+  });
+}
+
+document.addEventListener("click", async (e) => {
+  const b = e.target.closest("button[data-act]");
+  if (!b) return;
+  const { act, id } = b.dataset;
+  if (act === "reject" && !confirm("Delete this clip?")) return;
+  b.disabled = true;
+  const path = act === "stop" ? `/ingest/live/${id}/stop` : `/jobs/${id}/${act}`;
+  try { await api(path, { method: "POST" }); } catch (err) { alert(err.message); }
+  refresh();
+});
+
+async function refresh() {
+  try { renderJobs(await api("/api/jobs")); } catch (e) {}
+}
+
+let cfg;
+async function init() {
+  try { cfg = await api("/api/config"); } catch (e) { return; }
+  renderFormats(cfg.default_formats);
+  $("clips").value = cfg.clips;
+  Object.assign($("len"), { min: cfg.clip_min_s, max: cfg.clip_max_s, step: 5, value: cfg.clip_seconds });
+  $("lenOut").textContent = cfg.clip_seconds;
+  $("len").oninput = () => $("lenOut").textContent = $("len").value;
+  $("captions").checked = cfg.captions;
+  $("pills").innerHTML = [["Telegram", cfg.telegram], ["YouTube", cfg.youtube], ["Instagram", cfg.instagram]]
+    .map(([n, on]) => `<span class="pill ${on ? "on" : ""}">${n} ${on ? "connected" : "not set"}</span>`).join("");
+  refresh();
+}
+init();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>
