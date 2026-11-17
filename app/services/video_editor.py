@@ -162,7 +162,7 @@ def render_clip(src: Path, dst: Path, start: float, end: float, ass_file: Path |
     graph = f"[0:v]{vf}[v0]"
     out_label = "[v0]"
     if progress_bar:
-        bar_h = max(8, out_h // 160)
+        bar_h = max(12, min(out_w, out_h) // 54)  # ~20 px on 1080 wide: visible on phones
         graph += (f";color=c=0x{bar_color}:s={out_w}x{bar_h}:r=30[bar];"
                   f"[v0][bar]overlay=x='-w+w*t/{duration:.3f}':y=H-h:shortest=1:eval=frame[v1]")
         out_label = "[v1]"

@@ -247,7 +247,8 @@ def render_clip(job_id: str) -> Path | None:
     try:
         raw = Path(job["raw_path"])
         start, end = float(job["start_s"]), float(job["end_s"])
-        meta = job["meta"]
+        store.update(job_id, meta={"caption_error": None, "llm_error": None})  # clear notes from earlier renders
+        meta = store.get(job_id)["meta"]
         fmt = meta.get("format", "vertical")
         out_w, out_h = video_editor.format_size(fmt)
         style = meta.get("caption_style", s.caption_style) if meta.get("captions", s.captions_enabled) else "none"
@@ -269,7 +270,9 @@ def render_clip(job_id: str) -> Path | None:
         md: dict = {}
         if use_llm_meta:
             try:
-                md = llm.clip_metadata(" ".join(w.text for w in words), source_title, fmt, rs)
+                used = [x for c in (store.children(job["parent_id"]) if job.get("parent_id") else [])
+                        if c["id"] != job_id for x in (c["meta"].get("hook_text"), c["title"])]
+                md = llm.clip_metadata(" ".join(w.text for w in words), source_title, fmt, rs, avoid=used[:12])
                 if md.get("title"):
                     store.update(job_id, title=md["title"])
                     job["title"] = md["title"]
@@ -296,7 +299,7 @@ def render_clip(job_id: str) -> Path | None:
             t = video_editor.pick_cover_time(raw, start, end)
             cover_ass = transcriber.write_ass([], s.temp_dir / f"{job_id}_cover.ass", out_w, out_h,
                                               font=s.caption_font, style="none", hook=hook, hook_seconds=5,
-                                              animate_hook=False)
+                                              animate_hook=False, hook_scale=1.6)
             cover = video_editor.make_cover(raw, s.processed_dir / f"{job_id}.jpg", t, out_w, out_h, crop_x, cover_ass)
             if cover_ass:
                 cover_ass.unlink(missing_ok=True)

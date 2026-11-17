@@ -114,8 +114,10 @@ META_SYSTEM = (
 
 
 def clip_metadata(transcript: str, source_title: str, fmt: str, cfg: dict | None = None,
-                  client: httpx.Client | None = None) -> dict:
-    user = (f"Source video title: {source_title or 'unknown'}\n"
+                  client: httpx.Client | None = None, avoid: list[str] | None = None) -> dict:
+    avoid_txt = ("Other clips from this video already use these hooks/titles, so write different ones: "
+                 + "; ".join(a for a in avoid if a) + "\n") if avoid else ""
+    user = (avoid_txt + f"Source video title: {source_title or 'unknown'}\n"
             f"Clip format: {fmt}\n"
             f"What is said in the clip (may be empty if it's all action):\n{transcript[:3000] or '(no speech)'}")
     d = chat_json(META_SYSTEM, user, cfg, client)

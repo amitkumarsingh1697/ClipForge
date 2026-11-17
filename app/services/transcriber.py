@@ -108,7 +108,8 @@ def write_ass(words: list[Word], dst: Path, width: int = 1080, height: int = 192
               words_per_line: int = 3, font: str = "DejaVu Sans", style: str = "pop",
               hook: str | None = None, hook_seconds: float = 3.0,
               keywords: set[str] | None = None, highlight: str = "#FFE600",
-              keyword_color: str = "#3DFF7A", animate_hook: bool = True) -> Path | None:
+              keyword_color: str = "#3DFF7A", animate_hook: bool = True,
+              hook_scale: float = 1.0) -> Path | None:
     """Short-form captions + optional hook title. Returns None if there is nothing to draw.
 
     Styles (what viral clip tools use):
@@ -127,7 +128,7 @@ def write_ass(words: list[Word], dst: Path, width: int = 1080, height: int = 192
     vertical = height > width * 1.5
     base = int(min(width, height) * (0.065 if style == "minimal" else 0.09))
     margin_v = int(height * (0.28 if vertical else 0.10))
-    hook_size = int(min(width, height) * 0.08)
+    hook_size = int(min(width, height) * 0.08 * hook_scale)
     hl, kw = _bgr(highlight), _bgr(keyword_color)
     keywords = {k.lower().strip(".,!?") for k in (keywords or set())}
     header = f"""[Script Info]
@@ -148,7 +149,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     lines = []
     if hook:
-        h = _wrap_hook(_esc(hook), 18 if vertical else 32)
+        h = _wrap_hook(_esc(hook), int((18 if vertical else 32) / max(hook_scale, 0.5)) + 2)
         anim = "{\\fad(150,250)\\t(0,200,\\fscx105\\fscy105)\\t(200,400,\\fscx100\\fscy100)}" if animate_hook else ""
         lines.append(f"Dialogue: 1,{_ts(0)},{_ts(hook_seconds)},Hook,,0,0,0,,{anim}{h}")
     for i in range(0, len(words), words_per_line):

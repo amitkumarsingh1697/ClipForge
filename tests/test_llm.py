@@ -70,7 +70,7 @@ def words(monkeypatch):
 
 def test_render_uses_llm_title_and_hashtags(sample_video, words, monkeypatch):
     runtime_settings.save({"llm_provider": "ollama", "llm_model": "llama3.1:8b"})
-    monkeypatch.setattr(llm, "clip_metadata", lambda t, src, fmt, cfg=None: {
+    monkeypatch.setattr(llm, "clip_metadata", lambda t, src, fmt, cfg=None, avoid=None: {
         "title": "Insane Jump 🔥", "caption": "Watch till the end.", "hashtags": ["#jump", "#wow"]})
     job = pipeline.submit("upload", "g.mp4", raw_path=sample_video, options={"clips": 1})
     c = get_store().children(job)[0]
@@ -127,3 +127,17 @@ def test_settings_api(monkeypatch):
         raise llm.LLMError("can't reach ollama")
     monkeypatch.setattr(llm, "list_models", down)
     assert client.get("/api/llm/models?provider=ollama&base_url=x", headers=h).status_code == 502
+
+
+def test_sibling_hooks_are_passed_to_avoid_repeats(sample_video, words, monkeypatch):
+    runtime_settings.save({"llm_provider": "ollama", "llm_model": "x"})
+    seen = []
+
+    def meta(t, src, fmt, cfg=None, avoid=None):
+        seen.append(list(avoid or []))
+        n = len(seen)
+        return {"title": f"T{n}", "hook": f"Hook {n}", "caption": "", "hashtags": [], "keywords": [], "virality": 60}
+    monkeypatch.setattr(llm, "clip_metadata", meta)
+    job = pipeline.submit("upload", "g.mp4", raw_path=sample_video, options={"clips": 2, "clip_seconds": 20})
+    assert seen[0] == [] or all(x is None or x.startswith("g") for x in seen[0])
+    assert "Hook 1" in seen[1]
