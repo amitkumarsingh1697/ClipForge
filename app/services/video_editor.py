@@ -280,10 +280,69 @@ def _prepend_intro(image: Path, body: Path, dst: Path, out_w: int, out_h: int, i
         lst.unlink(missing_ok=True)
 
 
+def activity(src: Path, start: float, duration: float, step: float = 0.25) -> tuple[np.ndarray, np.ndarray]:
+    """Per-step on-screen motion and loudness over a clip (used to tell dead air from quiet action)."""
+    import subprocess
+
+    import cv2
+
+    n = max(1, int(duration / step))
+    motion = np.zeros(n)
+    cap = cv2.VideoCapture(str(src))
+    prev = None
+    for i in range(n + 1):
+        cap.set(cv2.CAP_PROP_POS_MSEC, (start + i * step) * 1000)
+        ok, f = cap.read()
+        if not ok:
+            break
+        g = cv2.cvtColor(cv2.resize(f, (160, max(1, int(160 * f.shape[0] / f.shape[1])))),
+                         cv2.COLOR_BGR2GRAY).astype(np.float32)
+        if prev is not None and i - 1 < n:
+            motion[i - 1] = float(np.abs(g - prev).mean())
+        prev = g
+    cap.release()
+    sr = 8000
+    p = subprocess.run(["ffmpeg", "-v", "error", "-nostdin", "-ss", f"{start:.3f}", "-t", f"{duration:.3f}",
+                        "-i", str(src), "-vn", "-ac", "1", "-ar", str(sr), "-f", "s16le", "-"],
+                       capture_output=True, timeout=120)
+    pcm = np.frombuffer(p.stdout, dtype=np.int16).astype(np.float32) / 32768.0
+    hop = int(sr * step)
+    loud = np.array([float(np.sqrt(np.mean(pcm[i * hop:(i + 1) * hop] ** 2))) if (i + 1) * hop <= len(pcm) else 0.0
+                     for i in range(n)])
+    return motion, loud
+
+
+def dead_gap_checker(src: Path, start: float, duration: float, step: float = 0.25):
+    """A gap is dead air only if it is BOTH visually calm and quiet compared with the rest of the clip.
+    Silent fight scenes, gameplay and music stay in."""
+    try:
+        motion, loud = activity(src, start, duration, step)
+    except Exception as e:  # analysis is best-effort; without it, cut nothing
+        log.warning("activity analysis failed: %s", e)
+        return lambda a, b: False
+    m_ref = float(np.median(motion)) if motion.any() else 0.0
+    l_ref = float(np.percentile(loud, 75)) if loud.any() else 0.0
+
+    def is_dead(a: float, b: float) -> bool:
+        i, j = int(a / step), max(int(a / step) + 1, int(b / step))
+        m, lo = motion[i:j], loud[i:j]
+        if not len(m):
+            return False
+        calm = float(m.mean()) <= 0.6 * m_ref + 0.5
+        quiet = float(lo.mean()) <= 0.35 * l_ref
+        return calm and quiet
+    return is_dead
+
+
 def jump_cut_spans(words, duration: float, min_gap: float = 0.7, pad: float = 0.15,
-                   min_words: int = 6) -> list[tuple[float, float]] | None:
-    """Spans to keep when removing dead air: speech plus a little padding; gaps longer than
-    min_gap are cut. Returns None when there isn't enough speech to cut on (action clips)."""
+                   min_words: int = 6, gap_is_dead=None,
+                   max_removed: float = 0.25) -> list[tuple[float, float]] | None:
+    """Spans to keep when removing dead air.
+
+    Candidate gaps are pauses between words longer than min_gap. A gap is only cut if
+    gap_is_dead(a, b) agrees (calm and quiet: not a silent action scene), and at most
+    max_removed of the clip is cut (longest dead gaps first). Returns None when there is
+    nothing to cut or not enough speech to cut on."""
     if len(words) < min_words:
         return None
     spans: list[list[float]] = []
@@ -293,14 +352,29 @@ def jump_cut_spans(words, duration: float, min_gap: float = 0.7, pad: float = 0.
             spans[-1][1] = max(spans[-1][1], b)
         else:
             spans.append([a, b])
-    if spans[0][0] < min_gap:
-        spans[0][0] = 0.0
-    if duration - spans[-1][1] < min_gap:
-        spans[-1][1] = duration
-    kept = sum(b - a for a, b in spans)
-    if len(spans) == 1 and kept >= duration - 0.05 or kept < duration * 0.4:
-        return None  # nothing to cut, or cutting would gut the clip
-    return [(a, b) for a, b in spans]
+    gaps = []
+    if spans[0][0] >= min_gap:
+        gaps.append((0.0, spans[0][0]))
+    gaps += [(spans[k][1], spans[k + 1][0]) for k in range(len(spans) - 1)]
+    if duration - spans[-1][1] >= min_gap:
+        gaps.append((spans[-1][1], duration))
+    if gap_is_dead is not None:
+        gaps = [g for g in gaps if gap_is_dead(*g)]
+    budget, chosen = max_removed * duration, []
+    for g in sorted(gaps, key=lambda g: g[0] - g[1]):  # longest first
+        if g[1] - g[0] <= budget:
+            chosen.append(g)
+            budget -= g[1] - g[0]
+    if not chosen:
+        return None
+    keep, t = [], 0.0
+    for a, b in sorted(chosen):
+        if a > t:
+            keep.append((t, a))
+        t = b
+    if t < duration:
+        keep.append((t, duration))
+    return keep
 
 
 def remap_time(t: float, keep: list[tuple[float, float]] | None) -> float | None:

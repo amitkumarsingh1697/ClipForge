@@ -90,14 +90,35 @@ def test_openai_compatible_falls_back_without_json_mode():
 
 # ---------------------------------------------------------------- jump cuts / zoom
 def test_jump_cut_spans_and_remap(talky):
-    keep = video_editor.jump_cut_spans(talky, 12.0)
+    keep = video_editor.jump_cut_spans(talky, 12.0, max_removed=0.5)
     assert keep == [(0.0, 1.75), (3.85, 9.65)]
     assert video_editor.remap_time(4.0, keep) == pytest.approx(1.9)
     assert video_editor.remap_time(2.5, keep) is None
+    # only gaps the checker calls dead are cut (a silent fight scene stays)
+    assert video_editor.jump_cut_spans(talky, 12.0, max_removed=0.5, gap_is_dead=lambda a, b: a < 5) == \
+        [(0.0, 1.75), (3.85, 12.0)]
+    # at most 25% of the clip is removed by default: longest dead gap first
+    assert video_editor.jump_cut_spans(talky, 12.0) == [(0.0, 9.65)]
     assert video_editor.jump_cut_spans(talky[:3], 12.0) is None  # too little speech: leave it alone
-    assert video_editor.jump_cut_spans(talky[:6] + talky[-1:], 12.0) is None  # mostly action: don't gut it
     z = pipeline.zoom_times(talky, {"boom"}, 12.0)
     assert z == [(8.95, 10.1)]
+
+
+def test_dead_gap_checker_keeps_silent_action(tmp_path):
+    import subprocess
+
+    src = tmp_path / "a.mp4"
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "color=c=black:s=320x240:r=30:d=16",
+                    "-f", "lavfi", "-i", "color=c=white:s=40x40:r=30:d=16",
+                    "-f", "lavfi", "-i", "sine=f=300:d=16",
+                    "-filter_complex", "[0:v][1:v]overlay=x='if(between(t,8,12),mod(t*400,280),20)':y=100:eval=frame[v];"
+                    "[2:a]volume='if(between(t,4,12),0,1)':eval=frame[a]",
+                    "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+                    "-c:a", "aac", str(src)], check=True)
+    dead = video_editor.dead_gap_checker(src, 0, 16)
+    assert dead(4.2, 7.8) is True      # calm and quiet: real dead air
+    assert dead(8.2, 11.8) is False    # quiet but lots of motion: action, keep it
+    assert dead(0.5, 3.5) is False     # loud
 
 
 def test_render_with_cuts_zoom_and_cover_intro(short_portrait, tmp_path):
@@ -113,7 +134,8 @@ def test_render_with_cuts_zoom_and_cover_intro(short_portrait, tmp_path):
     assert abs(info.duration - 5.25) < 0.2 and info.has_audio
 
 
-def test_pipeline_clip_has_cuts_cover_intro_and_watermark(short_portrait, talky):
+def test_pipeline_clip_has_cuts_cover_intro_and_watermark(short_portrait, talky, monkeypatch):
+    monkeypatch.setattr(video_editor, "dead_gap_checker", lambda *a, **k: (lambda a, b: True))
     runtime_settings.save({"watermark": "@peakmoments"})
     job = pipeline.submit("upload", "p.mp4", raw_path=short_portrait, options={"clip_seconds": 12})
     c = get_store().children(job)[0]
