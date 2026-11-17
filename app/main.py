@@ -239,14 +239,16 @@ def job_status(job_id: str):
 
 class ApproveIn(BaseModel):
     publish_at: str | None = None  # ISO time; empty = now
+    platforms: list[str] | None = None  # subset of connected platforms; empty = all of them
 
 
 @app.post("/jobs/{job_id}/approve", dependencies=[Depends(require_token)])
 def approve(job_id: str, body: ApproveIn | None = None):
+    body = body or ApproveIn()
     try:
-        return {"result": pipeline.approve(job_id, (body.publish_at if body else None) or None)}
+        return {"result": pipeline.approve(job_id, body.publish_at or None, body.platforms or None)}
     except ValueError as e:
-        raise HTTPException(422, f"bad publish time: {e}")
+        raise HTTPException(422, f"Couldn't approve: {e}")
 
 
 class EditIn(BaseModel):
@@ -414,10 +416,11 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
 @app.get("/api/publishing", dependencies=[Depends(require_token)])
 def publishing_status():
     from app.services.social_publisher import publishers_configured
-    from app.utils.auth_helpers import instagram_user_id, youtube_client_secrets_path
+    from app.utils.auth_helpers import facebook_page, instagram_user_id, youtube_client_secrets_path
 
     st = publishers_configured()
     return {**st, "youtube_client_uploaded": youtube_client_secrets_path().exists(),
+            "facebook_page_id": facebook_page()[0],
             "tiktok_privacy": get_settings().tiktok_privacy,
             "instagram_user_id": instagram_user_id(), "youtube_privacy": get_settings().youtube_privacy}
 
@@ -489,6 +492,29 @@ def instagram_setup(body: InstagramIn):
         raise HTTPException(502, f"Couldn't reach Instagram: {e}")
     save_instagram(body.user_id, body.access_token, body.app_id, body.app_secret)
     return {"ok": True, "username": info.get("username"), "account_type": info.get("account_type")}
+
+
+class FacebookIn(BaseModel):
+    page_id: str
+    page_token: str
+
+
+@app.post("/api/publishing/facebook", dependencies=[Depends(require_token)])
+def facebook_setup(body: FacebookIn):
+    import httpx
+
+    from app.utils.auth_helpers import save_facebook
+
+    s = get_settings()
+    try:
+        r = httpx.get(f"https://graph.facebook.com/{s.graph_api_version}/{body.page_id.strip()}",
+                      params={"fields": "name", "access_token": body.page_token.strip()}, timeout=20)
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"Couldn't reach Facebook: {e}")
+    if r.status_code != 200:
+        raise HTTPException(422, f"Facebook rejected these details: {r.text[:300]}")
+    save_facebook(body.page_id, body.page_token)
+    return {"ok": True, "name": r.json().get("name")}
 
 
 class TikTokIn(BaseModel):

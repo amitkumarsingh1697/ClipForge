@@ -28,6 +28,12 @@ MARKETPLACES: dict[str, dict[str, str]] = {
                        "how": "Per-campaign rates; submit post links."},
     "promote": {"name": "Promote.fun", "url": "https://promote.fun",
                 "how": "Campaigns pay per 1K views; submit your post links."},
+    "clipster": {"name": "Clipster", "url": "https://www.clipster.com",
+                 "how": "Campaign-set pay; withdraw via PayPal, bank, USDT or gift cards ($50 minimum)."},
+    "clippingnet": {"name": "Clipping.net", "url": "https://clipping.net",
+                    "how": "Per-1K-view campaigns; submit your post links."},
+    "kick": {"name": "Kick Bounties", "url": "https://bounties.kick.com",
+             "how": "Fixed rewards for clip challenges from Kick streamers (not per view)."},
     "direct": {"name": "Direct deal with a creator", "url": "",
                "how": "A streamer or podcaster pays you directly (per clip or per view)."},
     "other": {"name": "Other", "url": "", "how": ""},
@@ -109,6 +115,8 @@ def post_links(meta: dict) -> list[dict[str, str]]:
                     if meta.get("youtube_short") else f"https://youtu.be/{meta['youtube_id']}"})
     if meta.get("instagram_permalink") or meta.get("instagram_id"):
         out.append({"platform": "Instagram", "url": meta.get("instagram_permalink") or f"media {meta['instagram_id']}"})
+    if meta.get("facebook_id"):
+        out.append({"platform": "Facebook", "url": f"https://www.facebook.com/reel/{meta['facebook_id']}"})
     if meta.get("tiktok_id"):
         out.append({"platform": "TikTok", "url": meta.get("tiktok_url") or f"publish id {meta['tiktok_id']}"})
     return out

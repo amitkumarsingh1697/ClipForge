@@ -3,7 +3,7 @@
 
 <p align="center"><img src="docs/screenshots/clips.jpg" alt="ClipForge clips page" width="900"></p>
 
-Paste a video link, upload a file or follow a live stream. ClipForge finds the most exciting moments, cuts them into Shorts / Reels / TikToks with word-by-word captions, a hook title, jump cuts, zoom punch-ins, a progress bar and a cover image, and scores how viral each one looks. You review them in the web app or in Telegram, and approved clips are posted to YouTube, Instagram and TikTok, now or on a schedule.
+Paste a video link, upload a file or follow a live stream. ClipForge finds the most exciting moments, cuts them into Shorts / Reels / TikToks with word-by-word captions, a hook title, jump cuts, zoom punch-ins, a progress bar and a cover image, and scores how viral each one looks. You review them in the web app or in Telegram, and approved clips are posted to YouTube, Instagram, Facebook and TikTok (all of them, or just the ones you pick), now or on a schedule.
 
 Everything runs on your computer: speech-to-text with Whisper, and the AI writer with Ollama or any cloud model you choose. No subscriptions.
 
@@ -18,7 +18,7 @@ Everything runs on your computer: speech-to-text with Whisper, and the AI writer
 5. [Telegram bot: set up and link to the app](#4-telegram-bot-set-up-and-link-to-the-app)
 6. [Using the bot](#5-using-the-bot)
 7. [AI writer (optional)](#6-ai-writer-optional)
-8. [Connect YouTube, Instagram and TikTok](#7-connect-youtube-instagram-and-tiktok)
+8. [Connect YouTube, Instagram, Facebook and TikTok](#7-connect-youtube-instagram-facebook-and-tiktok)
 9. [Earn from clipping](#8-earn-from-clipping)
 10. [Commands](#9-commands)
 11. [Settings (.env)](#10-settings-env)
@@ -39,7 +39,7 @@ Everything runs on your computer: speech-to-text with Whisper, and the AI writer
 | **AI writer** | Hook, title, caption, hashtags and a virality score, plus alternative hooks and titles to choose from |
 | **Edit before posting** | Change the title, hook, caption or cover in the app or with buttons in Telegram |
 | **Copyright check** | Gives each link, live stream and upload a risk level, says whether the original is likely monetised, and suggests what to do |
-| **Publishing** | YouTube (Shorts or normal videos), Instagram Reels and TikTok, posted now or on a schedule |
+| **Publishing** | YouTube (Shorts or normal videos), Instagram Reels, Facebook Reels and TikTok, posted now or on a schedule. Choose per clip which platforms get it, in the app or in Telegram |
 | **Earn** | Tracks paid clipping campaigns (Whop Content Rewards, Vyro, ClipAffiliates, Promote.fun, direct deals). Adds the required hashtags, keeps post links ready to submit, and estimates earnings |
 
 <p align="center"><img src="docs/screenshots/clip-frames.jpg" alt="A finished clip: cover as first frame, hook title, pop captions, watermark and progress bar" width="700"><br>
@@ -114,7 +114,7 @@ The sidebar has five pages: **Create**, **Clips**, **Earn**, **Publishing** and 
 
 1. **Source:** paste a link, or switch to **Upload** (a file from your computer) or **Live stream** (a Twitch, Kick or YouTube live channel).
    Press **🛡 Check copyright** to see who owns the video and how risky it is to repost.
-2. **Shape:** pick one or more shapes. You get one clip per moment for each shape.
+2. **Shape:** pick one shape: Vertical 9:16 (Shorts, Reels, TikTok), Portrait 4:5, Square 1:1 or Landscape 16:9.
 3. **Clips per video** and **Clip length** (up to 5 min; Shorts count only up to 3 min). **Title** is optional.
 4. **Style:** caption style, an optional **Campaign** (see [Earn](#8-earn-from-clipping)), and the extras:
    - **Hook title:** big curiosity text for the first 3 seconds
@@ -130,7 +130,7 @@ On **Clips**, each video you submitted is a group with its copyright badge, and 
 
 | Button | What it does |
 |---|---|
-| **✓ Approve** | Opens the publish dialog: **Publish now**, or pick a time (or a quick choice such as *Tonight 7 PM*) and **Schedule** |
+| **✓ Approve** | Opens the publish dialog. Untick any platform you don't want under **Post to** (all connected ones are ticked), then **Publish now**, or pick a time (or a quick choice such as *Tonight 7 PM*) and **Schedule** |
 | **Reject** | Deletes the clip |
 | **✎ Edit** | Change the title, hook, caption or cover (see below) |
 | **⬇ Video / ⬇ Cover** | Download the MP4 or the cover JPG |
@@ -209,6 +209,14 @@ Bot:  [video] [cover image]
       🟡 Copyright risk: medium (original is probably monetised)
       [✅ Approve & Publish] [❌ Reject & Delete]
       [✏️ Title] [🪝 Hook] [🖼 Cover]
+      [☑️ YouTube] [☑️ Instagram] [☑️ Facebook]
+
+You:  (tap ☑️ Facebook)
+Bot:  Will post to: YouTube, Instagram      ← the button turns into ⬜ Facebook
+You:  (tap ✅ Approve & Publish)
+Bot:  ✅ Published:
+      YouTube: https://youtube.com/shorts/...
+      Instagram: https://www.instagram.com/reel/...
 ```
 
 | You send / tap | What happens |
@@ -216,7 +224,8 @@ Bot:  [video] [cover image]
 | A video or live link | Clips are made. Add shape words to choose shapes: `vertical`, `portrait`, `square`, `landscape` (default: the app's default) |
 | `/check https://...` | Copyright and monetisation check before you clip |
 | `/help` | Shows these commands |
-| **✅ Approve & Publish** | Posts to every connected account (or marks it approved if none are connected) |
+| **☑️ / ⬜ platform buttons** | Choose where this clip goes. Every connected platform starts ticked; tap one to untick it (or tick it again). At least one stays ticked. Shown when two or more platforms are connected |
+| **✅ Approve & Publish** | Posts to the ticked platforms (or marks it approved if none are connected) |
 | **❌ Reject & Delete** | Deletes the clip |
 | **✏️ Title** | Shows the AI's alternative titles: tap one, or type your own |
 | **🪝 Hook** | Same for the hook; send `none` to remove it. The clip is re-made and sent again |
@@ -257,7 +266,7 @@ Each provider keeps its own key, so you can switch back and forth. Under **Your 
 
 ---
 
-## 7. Connect YouTube, Instagram and TikTok
+## 7. Connect YouTube, Instagram, Facebook and TikTok
 
 <p align="center"><img src="docs/screenshots/publish.jpg" alt="Publishing page" width="900"></p>
 
@@ -278,6 +287,17 @@ New Google projects can only post **private** videos until Google audits them; y
 3. Generate a long-lived access token with `instagram_basic`, `instagram_content_publish` and `pages_show_list`. Copy your Instagram account ID too.
 4. Paste the ID and token, and optionally the app ID and secret so the token refreshes automatically. Press **Save & check**.
 
+### Facebook Reels
+
+Facebook pays Pages for Reels views through its content monetization programme, so it's worth posting there too.
+
+1. You need a Facebook **Page** (personal profiles can't be posted to by apps). The Page linked to your Instagram works.
+2. In the same Meta app as Instagram, open [Graph API Explorer](https://developers.facebook.com/tools/explorer/) and get a User token with `pages_show_list`, `pages_read_engagement` and `pages_manage_posts`.
+3. Exchange it for a long-lived token ([Access Token Debugger](https://developers.facebook.com/tools/debug/accesstoken/) → *Extend*), then call `me/accounts` in the Explorer. Copy your Page's **id** and **access_token**. A Page token made this way doesn't expire.
+4. Paste them in **Publishing → Facebook Reels** and press **Save & check**.
+
+Facebook Reels must be 3 to 90 seconds; longer clips skip Facebook and still go to the other platforms. Meta allows 30 reels per Page a day through the API.
+
 ### TikTok
 
 1. Create an app at [TikTok for Developers](https://developers.tiktok.com/apps) with **Login Kit** and **Content Posting API** (Direct Post), using the scope `video.publish`.
@@ -294,11 +314,22 @@ Until TikTok audits your app, posts are **private** (only you can see them).
 
 Creators and brands pay clippers per 1,000 views.
 
-1. On **Earn**, open a marketplace (Whop Content Rewards, Vyro, ClipAffiliates or Promote.fun) and join a campaign there.
+1. On **Earn**, open a marketplace and join a campaign there. Built in: Whop Content Rewards, Content Rewards, Vyro, ClipAffiliates, Promote.fun, Clipster, Clipping.net, Kick Bounties, or a direct deal with a creator.
 2. In **Add a campaign**, enter its name, pay per 1K views, page link, and any required hashtags and @mention.
 3. On **Create**, pick that campaign. Its hashtags and mention are added to every caption.
 4. After you publish, the post links appear under the campaign with **Copy** buttons. Submit them on the marketplace. None of them offer an API, so this step is yours.
 5. **↻ Refresh views** reads YouTube and Instagram view counts and estimates what you've earned.
+
+**Where the money comes from**
+
+| Source | How you get paid | Connected in ClipForge |
+|---|---|---|
+| YouTube Partner Program (Shorts) | Ad revenue share once the channel qualifies | Auto-post |
+| Facebook content monetization (Reels) | Paid per view on your Page | Auto-post |
+| TikTok Creator Rewards | Paid for videos over 1 minute, in supported countries | Auto-post |
+| Instagram | No general per-view pay in most countries; good for growth and brand deals | Auto-post |
+| Clipping marketplaces (Whop, Vyro, Clipster, ...) | Per 1K views on campaigns you join | Campaign tracking, hashtags, links to submit |
+| Snapchat Spotlight, X (Twitter) creator payouts | Per view / ad share | Not automatic: Snapchat has no posting API, and X charges for its API. Download the clip and post it yourself |
 
 **About copyright:** re-uploading other people's videos (TV, anime, music, sports, other creators) can get Content ID claims or strikes. A channel made only of re-uploads can also be refused monetisation as "reused content". Use the copyright check, clip creators who allow or pay for clips, add your own commentary, and credit the original. The check is an estimate based on public information, not legal advice.
 
@@ -330,7 +361,7 @@ Most things are set in the app. `.env` holds secrets and defaults; restart after
 | `TELEGRAM_BOT_TOKEN` / `TELEGRAM_OWNER_CHAT_ID` | empty | Telegram bot (see section 4) |
 | `API_TOKEN` | empty | Leave empty on your own computer (only this computer can open the app). Set a long random string to allow other devices |
 | `CLIP_MAX_S` / `CLIP_TARGET_S` / `CLIPS_PER_SOURCE` | 300 / 30 / 3 | Longest clip, default length, clips per video |
-| `OUTPUT_FORMATS` | vertical | Default shapes: any of vertical,portrait,square,landscape |
+| `OUTPUT_FORMATS` | vertical | Default shape in the app: vertical, portrait, square or landscape (Telegram links can still name several) |
 | `CAPTION_STYLE` | pop | pop, classic, minimal or none |
 | `HOOK_OVERLAY`, `JUMP_CUTS`, `ZOOM_PUNCH`, `PROGRESS_BAR`, `COVER_INTRO` | true | Default extras |
 | `WHISPER_MODEL` | small | tiny, base, small, medium, large-v3 |
@@ -360,6 +391,7 @@ Then refresh the browser with Cmd+Shift+R.
 | `SSL: UNEXPECTED_EOF`, or downloads from YouTube/Twitch/Instagram fail | Your network (office or managed Wi-Fi) blocks those sites. Use a hotspot or VPN, or download the video and use **Upload** |
 | Clip length slider stops at 60 s | An old `.env` has `CLIP_MAX_S=60`. Change it to `300` and restart |
 | "Connect YouTube, Instagram or TikTok" after Approve | No account is connected yet; see section 7 |
+| "Skipped: Facebook (Reels must be 90 s or shorter)" | Facebook only takes reels up to 90 s. Make shorter clips, or untick Facebook for long ones |
 | YouTube views don't load | Press **Connect YouTube** again (reading views needs a newer permission) |
 | `telegram-setup` waits forever | Stop `serve` first, then press **Start** in the bot within 5 minutes |
 | The bot doesn't answer | Check `TELEGRAM_BOT_TOKEN` and `TELEGRAM_OWNER_CHAT_ID` in `.env`, restart, and look for `Telegram bot is listening` in the log. The bot answers only its owner |
