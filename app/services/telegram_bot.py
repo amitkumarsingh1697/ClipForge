@@ -73,22 +73,24 @@ def approval_markup(job_id: str) -> dict:
          {"text": "🪝 Hook", "callback_data": f"eh:{job_id}"},
          {"text": "🖼 Cover", "callback_data": f"ec:{job_id}"}],
     ]
-    toggles = [{"text": f"{'☑️' if key in chosen else '⬜'} {label}", "callback_data": f"p:{job_id}:{code}"}
-               for key, label, code in PLATFORMS if configured.get(key)]
-    if len(toggles) > 1:  # with one platform there is nothing to choose
-        rows += [toggles[i:i + 2] for i in range(0, len(toggles), 2)] if len(toggles) > 3 else [toggles]
+    # Every platform is shown; ones not connected yet are locked (🔒) and explain how to connect them.
+    toggles = [{"text": f"{('☑️' if key in chosen else '⬜') if configured.get(key) else '🔒'} {label}",
+                "callback_data": f"p:{job_id}:{code}"} for key, label, code in PLATFORMS]
+    rows += [toggles[i:i + 2] for i in range(0, len(toggles), 2)]
     return {"inline_keyboard": rows}
 
 
 def _toggle_platform(rest: str) -> str:
     from app.pipeline import toggle_platform
-    from app.services.social_publisher import PLATFORMS
+    from app.services.social_publisher import PLATFORMS, publishers_configured
 
     job_id, _, code = rest.partition(":")
     key = next((k for k, _, c in PLATFORMS if c == code), None)
     if not key:
         return "unknown platform"
     names = dict((k, label) for k, label, _ in PLATFORMS)
+    if not publishers_configured().get(key):
+        return f"🔒 {names[key]} isn't connected yet. Connect it in the app: Publishing."
     return "Will post to: " + ", ".join(names[k] for k in toggle_platform(job_id, key))
 
 
@@ -220,7 +222,7 @@ HELP = ("Send me a video or live-stream link and I'll make clips. Add format wor
         "Formats: vertical (9:16), portrait (4:5), square (1:1), landscape (16:9).\n\n"
         "/check <link> — copyright and monetisation risk of a video before you clip it\n"
         "Under each clip: ✏️ Title, 🪝 Hook and 🖼 Cover let you change them, and the ☑️ platform buttons "
-        "choose where it gets posted (all connected platforms are ticked; tap one to untick it).")
+        "choose where it gets posted (all connected platforms are ticked; tap one to untick it; 🔒 = not connected yet).")
 
 
 def handle_update(update: dict, on_approve: Callable[[str], str], on_reject: Callable[[str], str],
@@ -254,7 +256,7 @@ def handle_update(update: dict, on_approve: Callable[[str], str], on_reject: Cal
             if msg and final:
                 _api("editMessageReplyMarkup", data={"chat_id": msg["chat"]["id"], "message_id": msg["message_id"],
                                                      "reply_markup": json.dumps({"inline_keyboard": []})})
-            elif msg and action == "p" and not result.startswith("Couldn't"):
+            elif msg and action == "p" and result.startswith("Will post"):
                 _api("editMessageReplyMarkup", data={
                     "chat_id": msg["chat"]["id"], "message_id": msg["message_id"],
                     "reply_markup": json.dumps(approval_markup(rest.partition(":")[0]))})

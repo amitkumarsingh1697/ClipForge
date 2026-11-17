@@ -130,7 +130,7 @@ On **Clips**, each video you submitted is a group with its copyright badge, and 
 
 | Button | What it does |
 |---|---|
-| **✓ Approve** | Opens the publish dialog. Untick any platform you don't want under **Post to** (all connected ones are ticked), then **Publish now**, or pick a time (or a quick choice such as *Tonight 7 PM*) and **Schedule** |
+| **✓ Approve** | Opens the publish dialog. Untick any platform you don't want under **Post to** (all connected ones are ticked; ones not connected yet show 🔒), then **Publish now**, or pick a time (or a quick choice such as *Tonight 7 PM*) and **Schedule** |
 | **Reject** | Deletes the clip |
 | **✎ Edit** | Change the title, hook, caption or cover (see below) |
 | **⬇ Video / ⬇ Cover** | Download the MP4 or the cover JPG |
@@ -209,7 +209,8 @@ Bot:  [video] [cover image]
       🟡 Copyright risk: medium (original is probably monetised)
       [✅ Approve & Publish] [❌ Reject & Delete]
       [✏️ Title] [🪝 Hook] [🖼 Cover]
-      [☑️ YouTube] [☑️ Instagram] [☑️ Facebook]
+      [☑️ YouTube] [☑️ Instagram]
+      [☑️ Facebook] [🔒 TikTok]
 
 You:  (tap ☑️ Facebook)
 Bot:  Will post to: YouTube, Instagram      ← the button turns into ⬜ Facebook
@@ -224,7 +225,7 @@ Bot:  ✅ Published:
 | A video or live link | Clips are made. Add shape words to choose shapes: `vertical`, `portrait`, `square`, `landscape` (default: the app's default) |
 | `/check https://...` | Copyright and monetisation check before you clip |
 | `/help` | Shows these commands |
-| **☑️ / ⬜ platform buttons** | Choose where this clip goes. Every connected platform starts ticked; tap one to untick it (or tick it again). At least one stays ticked. Shown when two or more platforms are connected |
+| **☑️ / ⬜ platform buttons** | Choose where this clip goes. Every connected platform starts ticked; tap one to untick it (or tick it again). At least one stays ticked. 🔒 means that platform isn't connected yet (connect it on **Publishing**) |
 | **✅ Approve & Publish** | Posts to the ticked platforms (or marks it approved if none are connected) |
 | **❌ Reject & Delete** | Deletes the clip |
 | **✏️ Title** | Shows the AI's alternative titles: tap one, or type your own |

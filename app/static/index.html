@@ -189,6 +189,7 @@ dialog::backdrop { background: rgba(10, 5, 25, .55); backdrop-filter: blur(3px);
 .opts button { font-size: 12px; border: 1px dashed var(--line); background: transparent; color: var(--muted); border-radius: 8px; padding: 4px 8px; cursor: pointer; font-family: inherit; text-align: left; }
 .chk { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; border: 1px solid var(--line); border-radius: 8px; padding: 5px 10px; cursor: pointer; }
 .chk input { accent-color: var(--brand2); }
+.chk.off { opacity: .55; cursor: not-allowed; } .chk small { color: var(--muted); }
 .opts button:hover { border-color: var(--accent); color: var(--text); }
 
 @media (max-width: 860px) {
@@ -472,7 +473,7 @@ dialog::backdrop { background: rgba(10, 5, 25, .55); backdrop-filter: blur(3px);
     <p class="msg" style="margin:0">Post now, or pick a time and ClipForge publishes it then (keep the app running).</p>
     <div><label class="field">Publish at (your time)</label><input type="datetime-local" id="schedAt"></div>
     <div class="opts" id="schedQuick"></div>
-    <div id="schedPlatWrap"><label class="field">Post to</label><div class="opts" id="schedPlat"></div></div>
+    <div id="schedPlatWrap"><label class="field">Post to (untick any you don't want)</label><div class="opts" id="schedPlat"></div></div>
   </div>
   <div class="dlg-f">
     <span class="msg" id="schedMsg" style="margin-right:auto"></span>
@@ -801,14 +802,15 @@ function openSchedule(id) {
 const PLATFORMS = [["youtube", "YouTube"], ["instagram", "Instagram"], ["facebook", "Facebook"], ["tiktok", "TikTok"]];
 function renderSchedPlatforms() {
   const job = (jobsCache || []).flatMap((j) => j.clips || []).find((c) => c.id === scheduling) || { meta: {} };
-  const on = PLATFORMS.filter(([k]) => cfg && cfg[k]);
-  const picked = job.meta.platforms;
-  $("schedPlatWrap").classList.toggle("hidden", on.length < 2);
-  $("schedPlat").innerHTML = on.map(([k, n]) =>
-    `<label class="chk"><input type="checkbox" value="${k}" ${!picked || picked.includes(k) ? "checked" : ""}> ${n}</label>`).join("");
+  const picked = job.meta.platforms, any = PLATFORMS.some(([k]) => cfg && cfg[k]);
+  $("schedPlat").innerHTML = PLATFORMS.map(([k, n]) => {
+    const on = cfg && cfg[k];
+    return on ? `<label class="chk"><input type="checkbox" value="${k}" ${!picked || picked.includes(k) ? "checked" : ""}> ${n}</label>`
+      : `<label class="chk off" title="Connect it on the Publishing page"><input type="checkbox" disabled> 🔒 ${n} <small>not connected</small></label>`;
+  }).join("") + (any ? "" : `<div class="meta" style="width:100%">Nothing connected yet, so Approve saves the clip for you to download. Connect accounts on <b>Publishing</b>.</div>`);
 }
 const schedPlatforms = () => {
-  const boxes = [...document.querySelectorAll("#schedPlat input")];
+  const boxes = [...document.querySelectorAll("#schedPlat input:not([disabled])")];
   return boxes.length ? boxes.filter((b) => b.checked).map((b) => b.value) : null;
 };
 $("schedCancel").onclick = () => $("schedDlg").close();
