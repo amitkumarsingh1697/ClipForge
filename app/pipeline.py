@@ -361,7 +361,10 @@ def render_clip(job_id: str) -> Path | None:
         if meta.get("hook", s.hook_overlay):
             hook = meta.get("hook_custom") or md.get("hook") or fallback_hook(source_title)
         duration = end - start
-        keep = video_editor.jump_cut_spans(words, duration) if want_cuts and words else None
+        keep = None
+        if want_cuts and len(words) >= 6:
+            keep = video_editor.jump_cut_spans(words, duration,
+                                               gap_is_dead=video_editor.dead_gap_checker(raw, start, duration))
         out_words = _remap_words(words, keep) if keep else words
         out_dur = sum(b - a for a, b in keep) if keep else duration
         zooms = zoom_times(out_words, set(md.get("keywords") or []), out_dur) if meta.get("zoom", s.zoom_punch) else None
@@ -394,7 +397,7 @@ def render_clip(job_id: str) -> Path | None:
         store.update(job_id, output_path=str(out), score=score,
                      meta={"caption_words": len(words) if style != "none" else 0, "hook_text": hook,
                            "virality": score, "duration": round(out_dur, 1),
-                           "cuts": max(0, len(keep) - 1) if keep else 0,
+                           "cuts": (len(keep) - 1 + (keep[0][0] > 0) + (keep[-1][1] < duration - 0.01)) if keep else 0,
                            "seconds_removed": round(duration - out_dur, 1), "zooms": len(zooms or [])})
         store.transition(job_id, "rendering", "awaiting_approval")
         _send_for_review(job_id)
