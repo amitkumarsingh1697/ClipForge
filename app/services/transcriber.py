@@ -109,7 +109,7 @@ def write_ass(words: list[Word], dst: Path, width: int = 1080, height: int = 192
               hook: str | None = None, hook_seconds: float = 3.0,
               keywords: set[str] | None = None, highlight: str = "#FFE600",
               keyword_color: str = "#3DFF7A", animate_hook: bool = True,
-              hook_scale: float = 1.0) -> Path | None:
+              hook_scale: float = 1.0, watermark: str | None = None) -> Path | None:
     """Short-form captions + optional hook title. Returns None if there is nothing to draw.
 
     Styles (what viral clip tools use):
@@ -123,7 +123,7 @@ def write_ass(words: list[Word], dst: Path, width: int = 1080, height: int = 192
     style = style if style in CAPTION_STYLES else "pop"
     if style == "none":
         words = []
-    if not words and not hook:
+    if not words and not hook and not watermark:
         return None
     vertical = height > width * 1.5
     base = int(min(width, height) * (0.065 if style == "minimal" else 0.09))
@@ -142,12 +142,15 @@ ScaledBorderAndShadow: yes
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Cap,{font},{base},&H00FFFFFF,&H0000FFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,7,3,2,60,60,{margin_v},1
 Style: Min,{font},{base},&H00FFFFFF,&H00FFFFFF,&H00000000,&H99000000,-1,0,0,0,100,100,0,0,3,14,0,2,80,80,{margin_v},1
+Style: Mark,{font},{int(min(width, height) * 0.036)},&H50FFFFFF,&H50FFFFFF,&H90000000,&H00000000,-1,0,0,0,100,100,0,0,1,2,0,9,40,40,{int(height * 0.04)},1
 Style: Hook,{font},{hook_size},&H00000000,&H00000000,&H00FFFFFF,&H00FFFFFF,-1,0,0,0,100,100,0,0,3,22,0,8,70,70,{int(height * (0.12 if vertical else 0.06))},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     lines = []
+    if watermark:
+        lines.append(f"Dialogue: 2,{_ts(0)},9:59:59.00,Mark,,0,0,0,,{_esc(watermark)[:40]}")
     if hook:
         h = _wrap_hook(_esc(hook), int((18 if vertical else 32) / max(hook_scale, 0.5)) + 2)
         anim = "{\\fad(150,250)\\t(0,200,\\fscx105\\fscy105)\\t(200,400,\\fscx100\\fscy100)}" if animate_hook else ""

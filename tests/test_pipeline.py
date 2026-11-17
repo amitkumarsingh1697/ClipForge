@@ -71,7 +71,7 @@ def test_approve_without_publishers_saves_clip(sample_video, no_whisper):
     cid = get_store().children(job)[0]["id"]
     msg = pipeline.approve(cid)
     c = get_store().get(cid)
-    assert c["status"] == "approved" and "Connect YouTube or Instagram" in msg
+    assert c["status"] == "approved" and "Connect YouTube, Instagram or TikTok" in msg
 
 
 def test_api_requires_token_and_accepts_upload(sample_video, no_whisper):
@@ -184,7 +184,7 @@ def test_telegram_link_with_format_words(monkeypatch):
 def test_ui_and_listing_endpoints(sample_video, no_whisper, monkeypatch):
     from app.main import app
     client = TestClient(app)
-    assert "Clip Agent" in client.get("/").text
+    assert "ClipForge" in client.get("/").text
     h = {"X-API-Token": "test-token"}
     with sample_video.open("rb") as fh:
         r = client.post("/upload", files={"file": ("a.mp4", fh, "video/mp4")},

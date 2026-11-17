@@ -104,8 +104,30 @@ def download_url(url: str, dest_dir: Path, max_height: int = 1080) -> tuple[Path
             raise FileNotFoundError(f"yt-dlp finished but no file for {url}")
         path = candidates[-1]
     meta = {k: info.get(k) for k in ("id", "title", "uploader", "duration", "webpage_url", "extractor")}
+    from app.services.rights import RIGHTS_FIELDS
+
+    meta["rights_info"] = {k: info.get(k) for k in RIGHTS_FIELDS}
     log.info("downloaded %s -> %s", url, path)
     return path, meta
+
+
+def probe_url(url: str) -> dict:
+    """Metadata only (no download), used by the copyright check."""
+    import yt_dlp
+
+    last: Exception | None = None
+    for force_ipv4 in (False, True):
+        opts = {"quiet": True, "no_warnings": True, "noplaylist": True, "skip_download": True, "socket_timeout": 20}
+        if force_ipv4:
+            opts["source_address"] = "0.0.0.0"
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                return ydl.extract_info(url, download=False, process=False) or {}
+        except yt_dlp.utils.DownloadError as e:
+            last = e
+            if not is_network_error(str(e)):
+                raise
+    raise ConnectionError(f"Couldn't reach the site to check this link: {str(last)[:200]}") from last
 
 
 def resolve_stream(url: str) -> str:

@@ -73,8 +73,9 @@ def upload_youtube(video: Path, title: str, description: str, tags: list[str] | 
             raise PublishError(f"YouTube upload failed: {reason[:300]}") from e
     vid = response["id"]
     log.info("youtube upload ok: %s (%s)", vid, s.youtube_privacy)
-    if thumbnail is not None and thumbnail.exists() and not shorts:
-        # Custom thumbnails need a phone-verified channel and don't apply to Shorts; never fail the upload over it.
+    if thumbnail is not None and thumbnail.exists():
+        # Needs a phone-verified channel. Shorts mostly show the first frame instead, which is why
+        # ClipForge also puts the cover at the start of the clip. Never fail the upload over it.
         try:
             yt.thumbnails().set(videoId=vid, media_body=MediaFileUpload(str(thumbnail), mimetype="image/jpeg")).execute()
         except HttpError as e:
@@ -132,10 +133,99 @@ def upload_instagram(video: Path, caption: str, client: httpx.Client | None = No
             c.close()
 
 
+def instagram_permalink(media_id: str) -> str | None:
+    s = get_settings()
+    try:
+        r = httpx.get(f"https://graph.facebook.com/{s.graph_api_version}/{media_id}",
+                      params={"fields": "permalink", "access_token": instagram_token()}, timeout=20)
+        return r.json().get("permalink")
+    except Exception:
+        return None
+
+
+def upload_tiktok(video: Path, title: str, cover_ms: int = 0, client: httpx.Client | None = None,
+                  poll_s: float = 5.0, timeout_s: float = 600) -> str:
+    """TikTok Content Posting API, direct post from a local file (chunked upload).
+    Apps that haven't passed TikTok's audit can only post privately (SELF_ONLY)."""
+    from app.utils.auth_helpers import tiktok_token
+
+    s = get_settings()
+    c = client or httpx.Client(timeout=120)
+    api = "https://open.tiktokapis.com/v2/post/publish"
+    try:
+        token = tiktok_token(c)
+        h = {"Authorization": f"Bearer {token}", "Content-Type": "application/json; charset=UTF-8"}
+        size = video.stat().st_size
+        chunk = size if size <= 64 * 1024 * 1024 else 10 * 1024 * 1024
+        count = max(1, size // chunk)
+        r = c.post(f"{api}/video/init/", headers=h, json={
+            "post_info": {"title": title[:2200], "privacy_level": s.tiktok_privacy,
+                          "video_cover_timestamp_ms": int(cover_ms or 0)},
+            "source_info": {"source": "FILE_UPLOAD", "video_size": size, "chunk_size": chunk,
+                            "total_chunk_count": count}})
+        d = r.json()
+        if r.status_code != 200 or d.get("error", {}).get("code") not in (None, "ok"):
+            raise PublishError(f"TikTok init failed: {r.text[:300]}")
+        publish_id, upload_url = d["data"]["publish_id"], d["data"]["upload_url"]
+        with video.open("rb") as fh:
+            for i in range(count):
+                start = i * chunk
+                end = size - 1 if i == count - 1 else start + chunk - 1
+                fh.seek(start)
+                body = fh.read(end - start + 1)
+                r = c.put(upload_url, content=body, timeout=600, headers={
+                    "Content-Type": "video/mp4", "Content-Length": str(len(body)),
+                    "Content-Range": f"bytes {start}-{end}/{size}"})
+                if r.status_code not in (200, 201, 206):
+                    raise PublishError(f"TikTok upload failed: {r.status_code} {r.text[:200]}")
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            st = c.post(f"{api}/status/fetch/", headers=h, json={"publish_id": publish_id}).json()
+            status = (st.get("data") or {}).get("status")
+            if status == "PUBLISH_COMPLETE":
+                return publish_id
+            if status == "FAILED":
+                raise PublishError(f"TikTok processing failed: {(st.get('data') or {}).get('fail_reason')}")
+            time.sleep(poll_s)
+        return publish_id  # still processing; TikTok finishes it in the background
+    finally:
+        if client is None:
+            c.close()
+
+
+def youtube_views(video_ids: list[str]) -> dict[str, int]:
+    from googleapiclient.discovery import build
+
+    if not video_ids:
+        return {}
+    yt = build("youtube", "v3", credentials=youtube_credentials(), cache_discovery=False)
+    out = {}
+    for i in range(0, len(video_ids), 50):
+        res = yt.videos().list(part="statistics", id=",".join(video_ids[i:i + 50])).execute()
+        for it in res.get("items", []):
+            out[it["id"]] = int(it.get("statistics", {}).get("viewCount", 0))
+    return out
+
+
+def instagram_views(media_id: str) -> int | None:
+    s = get_settings()
+    token = instagram_token()
+    for metric in ("views", "plays"):
+        try:
+            r = httpx.get(f"https://graph.facebook.com/{s.graph_api_version}/{media_id}/insights",
+                          params={"metric": metric, "access_token": token}, timeout=20)
+            data = r.json().get("data") or []
+            if r.status_code == 200 and data:
+                return int(data[0]["values"][0]["value"])
+        except Exception:
+            continue
+    return None
+
+
 def publishers_configured() -> dict[str, bool]:
     s = get_settings()
-    from app.utils.auth_helpers import instagram_user_id, youtube_token_path
+    from app.utils.auth_helpers import instagram_user_id, tiktok_configured, youtube_token_path
 
-    return {"youtube": youtube_token_path().exists(),
+    return {"youtube": youtube_token_path().exists(), "tiktok": tiktok_configured(),
             "instagram": bool(instagram_user_id() and (s.instagram_access_token or
                                                        (s.secrets_dir / "instagram_token.json").exists()))}

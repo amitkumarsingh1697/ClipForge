@@ -27,7 +27,7 @@ from app.services import ingest, telegram_bot
 from app.utils.job_store import get_store
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-app = FastAPI(title="Clip Agent")
+app = FastAPI(title="ClipForge")
 ALLOWED_EXT = {".mp4", ".mov", ".mkv", ".webm", ".m4v"}
 UI_FILE = Path(__file__).parent / "static" / "index.html"
 LOCAL_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
@@ -57,11 +57,16 @@ class UrlIn(BaseModel):
     caption_style: str | None = None
     hook: bool | None = None
     progress_bar: bool | None = None
+    jump_cuts: bool | None = None
+    zoom: bool | None = None
+    cover_intro: bool | None = None
+    campaign: str | None = None
 
     def options(self) -> dict:
         try:
             return pipeline.clean_options(self.formats, self.clips, self.clip_seconds, self.captions,
-                                          self.caption_style, self.hook, self.progress_bar)
+                                          self.caption_style, self.hook, self.progress_bar, self.jump_cuts,
+                                          self.zoom, self.cover_intro, self.campaign)
         except ValueError as e:
             raise HTTPException(422, str(e))
 
@@ -82,6 +87,7 @@ def api_config():
             "clips": s.clips_per_source, "clip_seconds": s.clip_target_s,
             "clip_min_s": s.clip_min_s, "clip_max_s": s.clip_max_s, "captions": s.captions_enabled,
             "caption_style": s.caption_style, "hook": s.hook_overlay, "progress_bar": s.progress_bar,
+            "jump_cuts": s.jump_cuts, "zoom": s.zoom_punch, "cover_intro": s.cover_intro,
             "telegram": bool(s.telegram_bot_token and s.telegram_owner_chat_id),
             **publishers_configured()}
 
@@ -94,6 +100,8 @@ class SettingsIn(BaseModel):
     llm_titles: bool | None = None
     llm_rank: bool | None = None
     whisper_model: str | None = None
+    watermark: str | None = None
+    default_hashtags: str | None = None
 
 
 @app.get("/api/settings", dependencies=[Depends(require_token)])
@@ -120,7 +128,7 @@ def llm_models(provider: str, base_url: str):
     from app.utils import runtime_settings
 
     try:
-        return {"models": llm.list_models(provider, base_url, runtime_settings.load()["llm_api_key"])}
+        return {"models": llm.list_models(provider, base_url, runtime_settings.api_key(runtime_settings.load(), provider))}
     except llm.LLMError as e:
         raise HTTPException(502, str(e))
 
@@ -170,10 +178,13 @@ def health():
 async def upload(file: UploadFile = File(...), formats: str | None = Form(None), clips: int | None = Form(None),
                  clip_seconds: float | None = Form(None), captions: bool | None = Form(None),
                  title: str | None = Form(None), caption_style: str | None = Form(None),
-                 hook: bool | None = Form(None), progress_bar: bool | None = Form(None)):
+                 hook: bool | None = Form(None), progress_bar: bool | None = Form(None),
+                 jump_cuts: bool | None = Form(None), zoom: bool | None = Form(None),
+                 cover_intro: bool | None = Form(None), campaign: str | None = Form(None)):
     s = get_settings()
     try:
-        opts = pipeline.clean_options(formats, clips, clip_seconds, captions, caption_style, hook, progress_bar)
+        opts = pipeline.clean_options(formats, clips, clip_seconds, captions, caption_style, hook, progress_bar,
+                                      jump_cuts, zoom, cover_intro, campaign)
     except ValueError as e:
         raise HTTPException(422, str(e))
     ext = Path(file.filename or "").suffix.lower()
@@ -224,9 +235,110 @@ def job_status(job_id: str):
     return {**job, "clips": store.children(job_id)}
 
 
+class ApproveIn(BaseModel):
+    publish_at: str | None = None  # ISO time; empty = now
+
+
 @app.post("/jobs/{job_id}/approve", dependencies=[Depends(require_token)])
-def approve(job_id: str):
-    return {"result": pipeline.approve(job_id)}
+def approve(job_id: str, body: ApproveIn | None = None):
+    try:
+        return {"result": pipeline.approve(job_id, (body.publish_at if body else None) or None)}
+    except ValueError as e:
+        raise HTTPException(422, f"bad publish time: {e}")
+
+
+class EditIn(BaseModel):
+    title: str | None = None
+    hook: str | None = None
+    caption: str | None = None
+    cover_text: str | None = None
+    cover_time: float | None = None
+    cover_reset: bool = False
+
+
+@app.patch("/jobs/{job_id}", dependencies=[Depends(require_token)])
+def edit_job(job_id: str, body: EditIn):
+    try:
+        return {"result": pipeline.edit_clip(job_id, **body.model_dump())}
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+
+
+@app.post("/jobs/{job_id}/cover", dependencies=[Depends(require_token)])
+async def upload_cover(job_id: str, file: UploadFile = File(...)):
+    data = await file.read(15 * 1024 * 1024 + 1)
+    if len(data) > 15 * 1024 * 1024:
+        raise HTTPException(413, "cover image must be under 15 MB")
+    if not (data[:3] == b"\xff\xd8\xff" or data[:8] == b"\x89PNG\r\n\x1a\n" or data[8:12] == b"WEBP"):
+        raise HTTPException(415, "use a JPG, PNG or WebP image")
+    try:
+        return {"result": pipeline.edit_clip(job_id, cover_image=data)}
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+
+
+class CheckIn(BaseModel):
+    url: HttpUrl
+
+
+@app.post("/api/rights/check", dependencies=[Depends(require_token)])
+def rights_check(body: CheckIn):
+    from app.services import rights
+
+    try:
+        return rights.check_url(str(body.url))
+    except Exception as e:
+        raise HTTPException(502, f"Couldn't check that link: {str(e)[:300]}")
+
+
+class CampaignIn(BaseModel):
+    id: str | None = None
+    name: str | None = None
+    marketplace: str | None = None
+    url: str | None = None
+    source_url: str | None = None
+    cpm: float | None = None
+    hashtags: str | None = None
+    mention: str | None = None
+    notes: str | None = None
+    active: bool | None = None
+
+
+@app.get("/api/campaigns", dependencies=[Depends(require_token)])
+def list_campaigns():
+    from app.utils import campaigns
+
+    store = get_store()
+    items = campaigns.load()
+    published = store.by_status("published")
+    for c in items:
+        mine = [j for j in published if j["meta"].get("campaign") == c["id"]]
+        c["clips"] = len(mine)
+        c["views"] = sum((j["meta"].get("views_youtube") or 0) + (j["meta"].get("views_instagram") or 0) for j in mine)
+        c["earnings_est"] = round(sum(j["meta"].get("earnings_est") or 0 for j in mine), 2)
+        c["links"] = [{"clip": j["id"], "title": j["title"], **l} for j in mine for l in campaigns.post_links(j["meta"])]
+    return {"campaigns": items, "marketplaces": campaigns.MARKETPLACES}
+
+
+@app.post("/api/campaigns", dependencies=[Depends(require_token)])
+def save_campaign(body: CampaignIn):
+    from app.utils import campaigns
+
+    return campaigns.upsert(body.model_dump())
+
+
+@app.delete("/api/campaigns/{cid}", dependencies=[Depends(require_token)])
+def delete_campaign(cid: str):
+    from app.utils import campaigns
+
+    if not campaigns.delete(cid):
+        raise HTTPException(404)
+    return {"ok": True}
+
+
+@app.post("/api/stats/refresh", dependencies=[Depends(require_token)])
+def stats_refresh():
+    return pipeline.refresh_stats()
 
 
 @app.post("/jobs/{job_id}/reject", dependencies=[Depends(require_token)])
@@ -238,6 +350,10 @@ class RerenderIn(BaseModel):
     caption_style: str | None = None
     hook: bool | None = None
     progress_bar: bool | None = None
+    jump_cuts: bool | None = None
+    zoom: bool | None = None
+    cover_intro: bool | None = None
+    new_ai_text: bool = False  # ask the LLM for a fresh title/hook/caption
 
 
 @app.post("/jobs/{job_id}/rerender", dependencies=[Depends(require_token)])
@@ -247,15 +363,18 @@ def rerender(job_id: str, body: RerenderIn | None = None):
     job = store.get(job_id)
     if not job or job["kind"] != "clip":
         raise HTTPException(404)
-    if job["status"] in ("rendering", "publishing", "published"):
+    if job["status"] in ("rendering", "publishing", "published", "queued"):
         raise HTTPException(409, f"clip is {job['status']}")
     changes = {}
     if body:
         try:
             changes = pipeline.clean_options(caption_style=body.caption_style, hook=body.hook,
-                                             progress_bar=body.progress_bar)
+                                             progress_bar=body.progress_bar, jump_cuts=body.jump_cuts,
+                                             zoom=body.zoom, cover_intro=body.cover_intro)
         except ValueError as e:
             raise HTTPException(422, str(e))
+        if body.new_ai_text:
+            changes.update(llm_refresh=True, title_locked=False, hook_custom=None, caption_custom=None)
     store.update(job_id, status="queued", error=None, meta=changes)
     pipeline._dispatch("render_clip_task", job_id)
     return {"status": "rendering"}
@@ -285,7 +404,8 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
     if not secret or not hmac.compare_digest(x_telegram_bot_api_secret_token, secret):
         raise HTTPException(401)
     update = await request.json()
-    result = telegram_bot.handle_update(update, pipeline.approve, pipeline.reject, pipeline.submit_link)
+    result = telegram_bot.handle_update(update, pipeline.approve, pipeline.reject, pipeline.submit_link,
+                                        pipeline.edit_clip, pipeline.check_text)
     return {"ok": True, "result": result}
 
 
@@ -296,6 +416,7 @@ def publishing_status():
 
     st = publishers_configured()
     return {**st, "youtube_client_uploaded": youtube_client_secrets_path().exists(),
+            "tiktok_privacy": get_settings().tiktok_privacy,
             "instagram_user_id": instagram_user_id(), "youtube_privacy": get_settings().youtube_privacy}
 
 
@@ -339,7 +460,7 @@ def auth_youtube_callback(request: Request, state: str = "", error: str = ""):
         auth_helpers.youtube_finish(state, str(request.url))
     except Exception as e:
         return HTMLResponse(f"<p>YouTube sign-in failed: {str(e)[:300]}</p>", status_code=400)
-    return "<p>✅ YouTube connected. You can close this tab and go back to Clip Agent.</p>"
+    return "<p>✅ YouTube connected. You can close this tab and go back to ClipForge.</p>"
 
 
 class InstagramIn(BaseModel):
@@ -366,3 +487,27 @@ def instagram_setup(body: InstagramIn):
         raise HTTPException(502, f"Couldn't reach Instagram: {e}")
     save_instagram(body.user_id, body.access_token, body.app_id, body.app_secret)
     return {"ok": True, "username": info.get("username"), "account_type": info.get("account_type")}
+
+
+class TikTokIn(BaseModel):
+    client_key: str
+    client_secret: str = ""
+    access_token: str
+    refresh_token: str = ""
+
+
+@app.post("/api/publishing/tiktok", dependencies=[Depends(require_token)])
+def tiktok_setup(body: TikTokIn):
+    import httpx
+
+    from app.utils.auth_helpers import save_tiktok
+
+    try:
+        r = httpx.get("https://open.tiktokapis.com/v2/user/info/", params={"fields": "display_name"},
+                      headers={"Authorization": f"Bearer {body.access_token.strip()}"}, timeout=20)
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"Couldn't reach TikTok: {e}")
+    if r.status_code != 200:
+        raise HTTPException(422, f"TikTok rejected this token: {r.text[:300]}")
+    save_tiktok(body.client_key, body.client_secret, body.access_token, body.refresh_token)
+    return {"ok": True, "display_name": ((r.json().get("data") or {}).get("user") or {}).get("display_name")}
