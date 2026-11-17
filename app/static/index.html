@@ -187,6 +187,8 @@ dialog::backdrop { background: rgba(10, 5, 25, .55); backdrop-filter: blur(3px);
 .edit-grid img { width: 100%; border-radius: 10px; background: #000; display: block; }
 .opts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
 .opts button { font-size: 12px; border: 1px dashed var(--line); background: transparent; color: var(--muted); border-radius: 8px; padding: 4px 8px; cursor: pointer; font-family: inherit; text-align: left; }
+.chk { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; border: 1px solid var(--line); border-radius: 8px; padding: 5px 10px; cursor: pointer; }
+.chk input { accent-color: var(--brand2); }
 .opts button:hover { border-color: var(--accent); color: var(--text); }
 
 @media (max-width: 860px) {
@@ -254,7 +256,7 @@ dialog::backdrop { background: rgba(10, 5, 25, .55); backdrop-filter: blur(3px);
       </div>
 
       <div class="card">
-        <div class="card-h"><span class="step">2</span><h2>Shape</h2><span class="sub">Pick one or more</span></div>
+        <div class="card-h"><span class="step">2</span><h2>Shape</h2><span class="sub">Pick one</span></div>
         <div class="formats" id="formats"></div>
         <div class="grid mt">
           <div><label class="field">Clips per video</label><input type="number" id="clips" min="1" max="10"></div>
@@ -332,7 +334,7 @@ dialog::backdrop { background: rgba(10, 5, 25, .55); backdrop-filter: blur(3px);
     <section class="view hidden" id="view-publish">
       <div class="card">
         <div class="card-h"><h2>Publishing</h2><span class="sub" id="pubSummary"></span></div>
-        <p class="msg">Until an account is connected, Approve just saves the clip so you can download it and post it yourself. Approved clips go to every connected account.</p>
+        <p class="msg">Until an account is connected, Approve just saves the clip so you can download it and post it yourself. Approved clips go to every connected account, unless you untick some when you approve (in the app or in Telegram).</p>
         <div class="pub-grid">
           <div class="pub">
             <h3><span class="logo-dot" style="background:#ff0033">▶</span>YouTube Shorts</h3>
@@ -366,6 +368,21 @@ dialog::backdrop { background: rgba(10, 5, 25, .55); backdrop-filter: blur(3px);
               <div><label class="field">App secret (optional)</label><input type="password" id="igAppSecret"></div>
             </div>
             <div class="actions"><button class="btn" id="igSave" type="button">Save &amp; check</button></div>
+          </div>
+          <div class="pub">
+            <h3><span class="logo-dot" style="background:#1877f2">f</span>Facebook Reels</h3>
+            <div id="fbState" class="msg"></div>
+            <ol class="steps">
+              <li>You need a Facebook <b>Page</b> (not a personal profile). Facebook pays Pages for Reels views through its content monetization programme.</li>
+              <li>In the same <a href="https://developers.facebook.com/apps" target="_blank" rel="noopener">Meta app</a> as Instagram, open <a href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noopener">Graph API Explorer</a> and get a User token with <code>pages_show_list</code>, <code>pages_read_engagement</code>, <code>pages_manage_posts</code>.</li>
+              <li>Exchange it for a long-lived token, then call <code>me/accounts</code>: copy your Page's <b>id</b> and <b>access_token</b> (that Page token doesn't expire).</li>
+            </ol>
+            <div class="grid">
+              <div><label class="field">Page ID</label><input type="text" id="fbPage"></div>
+              <div><label class="field">Page access token</label><input type="password" id="fbToken"></div>
+            </div>
+            <div class="actions"><button class="btn" id="fbSave" type="button">Save &amp; check</button></div>
+            <p class="msg">Facebook Reels must be 90 s or shorter; longer clips skip Facebook. Meta allows 30 API reels per Page a day.</p>
           </div>
           <div class="pub">
             <h3><span class="logo-dot" style="background:#111;border:1px solid #444">♪</span>TikTok</h3>
@@ -455,6 +472,7 @@ dialog::backdrop { background: rgba(10, 5, 25, .55); backdrop-filter: blur(3px);
     <p class="msg" style="margin:0">Post now, or pick a time and ClipForge publishes it then (keep the app running).</p>
     <div><label class="field">Publish at (your time)</label><input type="datetime-local" id="schedAt"></div>
     <div class="opts" id="schedQuick"></div>
+    <div id="schedPlatWrap"><label class="field">Post to</label><div class="opts" id="schedPlat"></div></div>
   </div>
   <div class="dlg-f">
     <span class="msg" id="schedMsg" style="margin-right:auto"></span>
@@ -529,11 +547,13 @@ function renderFormats(defaults) {
   $("formats").innerHTML = "";
   for (const [name, [ratio, use, w, h]] of Object.entries(FORMAT_INFO)) {
     const el = document.createElement("label");
-    el.className = "fmt" + (defaults.includes(name) ? " on" : "");
-    el.innerHTML = `<input type="checkbox" value="${name}" ${defaults.includes(name) ? "checked" : ""}>
+    const on = name === (defaults[0] || "vertical");
+    el.className = "fmt" + (on ? " on" : "");
+    el.innerHTML = `<input type="radio" name="fmt" value="${name}" ${on ? "checked" : ""}>
       <span class="shape" style="width:${w}px;height:${h}px"></span>
       <span><b>${name[0].toUpperCase() + name.slice(1)}</b> ${ratio}<small>${use}</small></span>`;
-    el.querySelector("input").onchange = (e) => el.classList.toggle("on", e.target.checked);
+    el.querySelector("input").onchange = () =>
+      document.querySelectorAll("#formats .fmt").forEach((f) => f.classList.toggle("on", f.querySelector("input").checked));
     $("formats").appendChild(el);
   }
 }
@@ -563,7 +583,7 @@ $("checkLiveBtn").onclick = () => checkRights("live");
 
 $("go").onclick = async () => {
   const formats = chosenFormats(), msg = $("formMsg");
-  if (!formats.length) return setMsg(msg, "Pick at least one shape.", "err");
+  if (!formats.length) return setMsg(msg, "Pick a shape.", "err");
   const style = $("capStyle").value;
   const common = { formats, clips: +$("clips").value, clip_seconds: +$("len").value, captions: style !== "none",
     caption_style: style, hook: $("hook").checked, progress_bar: $("pbar").checked, jump_cuts: $("cuts").checked,
@@ -620,6 +640,7 @@ function clipHtml(c) {
   const links = [];
   if (m.youtube_id) links.push(`<a href="https://youtu.be/${esc(m.youtube_id)}" target="_blank" rel="noopener">YouTube</a>`);
   if (m.instagram_permalink) links.push(`<a href="${esc(m.instagram_permalink)}" target="_blank" rel="noopener">Instagram</a>`); else if (m.instagram_id) links.push("Instagram ✓");
+  if (m.facebook_id) links.push(`<a href="https://www.facebook.com/reel/${esc(m.facebook_id)}" target="_blank" rel="noopener">Facebook</a>`);
   if (m.tiktok_id) links.push("TikTok ✓");
   const views = (m.views_youtube || 0) + (m.views_instagram || 0);
   const tags = m.llm && m.llm.hashtags ? m.llm.hashtags.join(" ") : "";
@@ -774,12 +795,30 @@ function openSchedule(id) {
     else { if (String(v).startsWith("t")) d.setDate(d.getDate() + 1); d.setHours(+String(v).replace("t", ""), 0, 0, 0); }
     $("schedAt").value = localInput(d);
   });
+  renderSchedPlatforms();
   $("schedDlg").showModal();
 }
+const PLATFORMS = [["youtube", "YouTube"], ["instagram", "Instagram"], ["facebook", "Facebook"], ["tiktok", "TikTok"]];
+function renderSchedPlatforms() {
+  const job = (jobsCache || []).flatMap((j) => j.clips || []).find((c) => c.id === scheduling) || { meta: {} };
+  const on = PLATFORMS.filter(([k]) => cfg && cfg[k]);
+  const picked = job.meta.platforms;
+  $("schedPlatWrap").classList.toggle("hidden", on.length < 2);
+  $("schedPlat").innerHTML = on.map(([k, n]) =>
+    `<label class="chk"><input type="checkbox" value="${k}" ${!picked || picked.includes(k) ? "checked" : ""}> ${n}</label>`).join("");
+}
+const schedPlatforms = () => {
+  const boxes = [...document.querySelectorAll("#schedPlat input")];
+  return boxes.length ? boxes.filter((b) => b.checked).map((b) => b.value) : null;
+};
 $("schedCancel").onclick = () => $("schedDlg").close();
 async function doApprove(at) {
+  const platforms = schedPlatforms();
+  if (platforms && !platforms.length) return setMsg($("schedMsg"), "Tick at least one platform.", "err");
+  const body = { platforms };
+  if (at) body.publish_at = new Date(at).toISOString();
   try {
-    const r = await api(`/jobs/${scheduling}/approve`, { method: "POST", json: at ? { publish_at: new Date(at).toISOString() } : {} });
+    const r = await api(`/jobs/${scheduling}/approve`, { method: "POST", json: body });
     setMsg($("schedMsg"), r.result, "good"); refresh(); setTimeout(() => $("schedDlg").close(), 1400);
   } catch (e) { setMsg($("schedMsg"), e.message, "err"); }
 }
@@ -896,17 +935,19 @@ $("saveBrand").onclick = async () => {
 async function initPills() {
   const c = await api("/api/config"), st = await api("/api/settings");
   const llmOn = st.llm_provider !== "none" && !!st.llm_model;
-  $("pills").innerHTML = [["Telegram", c.telegram], ["YouTube", c.youtube], ["Instagram", c.instagram], ["TikTok", c.tiktok],
+  $("pills").innerHTML = [["Telegram", c.telegram], ["YouTube", c.youtube], ["Instagram", c.instagram], ["Facebook", c.facebook], ["TikTok", c.tiktok],
     [llmOn ? st.llm_model : "No LLM", llmOn]].map(([n, on]) => `<span class="pill ${on ? "on" : ""}">${esc(n)}</span>`).join("");
 }
 
 /* ---------- publishing ---------- */
 async function initPublishing() {
   const p = await api("/api/publishing");
+  if (cfg) for (const k of ["youtube", "instagram", "facebook", "tiktok"]) cfg[k] = !!p[k];
   $("ytState").innerHTML = p.youtube ? '<span class="ok-text">✓ Connected</span>' : (p.youtube_client_uploaded ? "Client JSON uploaded. Press Connect YouTube." : "Not connected.");
   $("igState").innerHTML = p.instagram ? `<span class="ok-text">✓ Connected</span> (account ${esc(p.instagram_user_id)})` : "Not connected.";
+  $("fbState").innerHTML = p.facebook ? `<span class="ok-text">✓ Connected</span> (Page ${esc(p.facebook_page_id)})` : "Not connected.";
   $("ttState").innerHTML = p.tiktok ? `<span class="ok-text">✓ Connected</span> (posts as ${esc(p.tiktok_privacy)})` : "Not connected.";
-  $("pubSummary").textContent = [p.youtube && "YouTube", p.instagram && "Instagram", p.tiktok && "TikTok"].filter(Boolean).join(" + ") || "Nothing connected yet";
+  $("pubSummary").textContent = [p.youtube && "YouTube", p.instagram && "Instagram", p.facebook && "Facebook", p.tiktok && "TikTok"].filter(Boolean).join(" + ") || "Nothing connected yet";
   $("ytConnect").href = "/auth/youtube" + tq(); $("ytConnect").target = "_blank";
 }
 $("ytUpload").onclick = async () => {
@@ -924,6 +965,16 @@ $("igSave").onclick = async () => {
     const r = await api("/api/publishing/instagram", { method: "POST", json: body });
     setMsg(msg, `Instagram connected: @${r.username} (${r.account_type}).`, "good");
     $("igToken").value = ""; $("igAppSecret").value = ""; initPublishing(); initPills();
+  } catch (e) { setMsg(msg, e.message, "err"); }
+};
+$("fbSave").onclick = async () => {
+  const msg = $("pubMsg");
+  const body = { page_id: $("fbPage").value.trim(), page_token: $("fbToken").value.trim() };
+  if (!body.page_id || !body.page_token) return setMsg(msg, "Facebook Page ID and Page token are required.", "err");
+  try {
+    const r = await api("/api/publishing/facebook", { method: "POST", json: body });
+    setMsg(msg, `Facebook connected: ${r.name}.`, "good");
+    $("fbToken").value = ""; cfg = await api("/api/config"); initPublishing(); initPills();
   } catch (e) { setMsg(msg, e.message, "err"); }
 };
 $("ttSave").onclick = async () => {

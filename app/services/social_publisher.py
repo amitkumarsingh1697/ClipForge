@@ -1,4 +1,4 @@
-"""YouTube and Instagram API logic.
+"""YouTube, Instagram, Facebook and TikTok publishing.
 
 FIXES vs the spec:
   YouTube
@@ -34,6 +34,13 @@ log = logging.getLogger(__name__)
 
 class PublishError(RuntimeError):
     pass
+
+
+# key, label, short code used in Telegram buttons
+PLATFORMS: list[tuple[str, str, str]] = [("youtube", "YouTube", "yt"), ("instagram", "Instagram", "ig"),
+                                         ("facebook", "Facebook", "fb"), ("tiktok", "TikTok", "tt")]
+PLATFORM_KEYS = [p[0] for p in PLATFORMS]
+FB_REEL_MAX_S = 90
 
 
 def youtube_title(title: str, shorts: bool = True) -> str:
@@ -222,10 +229,58 @@ def instagram_views(media_id: str) -> int | None:
     return None
 
 
+def upload_facebook(video: Path, description: str, client: httpx.Client | None = None,
+                    poll_s: float = 5.0, timeout_s: float = 300) -> str:
+    """Facebook Page Reel: start -> upload the file to rupload.facebook.com -> finish (PUBLISHED).
+    Reels must be 3-90 s; Meta allows 30 API-published reels per Page per 24 h."""
+    from app.utils.auth_helpers import facebook_page
+
+    s = get_settings()
+    page_id, token = facebook_page()
+    if not (page_id and token):
+        raise PublishError("Facebook Page is not connected")
+    graph = f"https://graph.facebook.com/{s.graph_api_version}"
+    c = client or httpx.Client(timeout=120)
+    try:
+        r = c.post(f"{graph}/{page_id}/video_reels", data={"upload_phase": "start", "access_token": token})
+        if r.status_code != 200:
+            raise PublishError(f"FB reel start failed: {r.text[:300]}")
+        video_id = r.json()["video_id"]
+        size = video.stat().st_size
+        with video.open("rb") as fh:
+            r = c.post(f"https://rupload.facebook.com/video-upload/{s.graph_api_version}/{video_id}",
+                       headers={"Authorization": f"OAuth {token}", "offset": "0", "file_size": str(size)},
+                       content=fh.read(), timeout=600)
+        if r.status_code != 200 or not r.json().get("success", False):
+            raise PublishError(f"FB reel upload failed: {r.text[:300]}")
+        r = c.post(f"{graph}/{page_id}/video_reels", data={
+            "upload_phase": "finish", "video_id": video_id, "video_state": "PUBLISHED",
+            "description": description[:2200], "access_token": token})
+        if r.status_code != 200 or not r.json().get("success", False):
+            raise PublishError(f"FB reel publish failed: {r.text[:300]}")
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:  # surface processing errors; otherwise Meta finishes in the background
+            st = (c.get(f"{graph}/{video_id}", params={"fields": "status", "access_token": token}).json()
+                  .get("status") or {})
+            if st.get("video_status") == "error":
+                phases = [st.get(k) or {} for k in ("uploading_phase", "processing_phase", "publishing_phase")]
+                errs = [e.get("message") for ph in phases for e in (ph.get("errors") or [])]
+                raise PublishError(f"FB reel processing failed: {'; '.join(filter(None, errs)) or st}")
+            if st.get("video_status") == "ready" or (st.get("publishing_phase") or {}).get("status") == "complete":
+                break
+            time.sleep(poll_s)
+        log.info("facebook reel ok: %s", video_id)
+        return video_id
+    finally:
+        if client is None:
+            c.close()
+
+
 def publishers_configured() -> dict[str, bool]:
     s = get_settings()
-    from app.utils.auth_helpers import instagram_user_id, tiktok_configured, youtube_token_path
+    from app.utils.auth_helpers import facebook_configured, instagram_user_id, tiktok_configured, youtube_token_path
 
     return {"youtube": youtube_token_path().exists(), "tiktok": tiktok_configured(),
             "instagram": bool(instagram_user_id() and (s.instagram_access_token or
-                                                       (s.secrets_dir / "instagram_token.json").exists()))}
+                                                       (s.secrets_dir / "instagram_token.json").exists())),
+            "facebook": facebook_configured()}

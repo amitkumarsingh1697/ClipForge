@@ -498,8 +498,49 @@ def edit_clip(job_id: str, title: str | None = None, hook: str | None = None, ca
 
 
 # ---------------------------------------------------------------- approval
-def approve(job_id: str, publish_at: str | None = None) -> str:
-    """publish_at: optional ISO time (UTC or with offset). Until then the clip waits as 'scheduled'."""
+def chosen_platforms(meta: dict, configured: dict[str, bool] | None = None) -> list[str]:
+    """Where this clip will be posted: the platforms picked for it, else every connected one."""
+    from app.services import social_publisher as sp
+
+    configured = configured if configured is not None else sp.publishers_configured()
+    picked = meta.get("platforms")
+    keys = [k for k in sp.PLATFORM_KEYS if configured.get(k)]
+    return [k for k in keys if k in picked] if picked else keys
+
+
+def set_platforms(job_id: str, platforms: list[str] | None) -> list[str]:
+    """platforms=None (or empty) resets to 'all connected platforms'."""
+    from app.services import social_publisher as sp
+
+    store = get_store()
+    if not store.get(job_id):
+        raise ValueError("unknown clip")
+    bad = [p for p in platforms or [] if p not in sp.PLATFORM_KEYS]
+    if bad:
+        raise ValueError(f"unknown platform {', '.join(bad)}")
+    store.update(job_id, meta={"platforms": list(dict.fromkeys(platforms)) if platforms else None})
+    return chosen_platforms(store.get(job_id)["meta"])
+
+
+def toggle_platform(job_id: str, platform: str) -> list[str]:
+    """Telegram toggle: flip one platform on or off for this clip, keeping at least one."""
+    store = get_store()
+    job = store.get(job_id)
+    if not job:
+        raise ValueError("unknown clip")
+    current = chosen_platforms(job["meta"])
+    if platform in current:
+        if len(current) == 1:
+            raise ValueError("keep at least one platform")
+        current.remove(platform)
+    else:
+        current.append(platform)
+    return set_platforms(job_id, current)
+
+
+def approve(job_id: str, publish_at: str | None = None, platforms: list[str] | None = None) -> str:
+    """publish_at: optional ISO time (UTC or with offset). Until then the clip waits as 'scheduled'.
+    platforms: optional subset of connected platforms; default is all of them."""
     from datetime import datetime, timezone
 
     from app.services import social_publisher as sp
@@ -508,7 +549,12 @@ def approve(job_id: str, publish_at: str | None = None) -> str:
     job = store.get(job_id)
     if not job:
         return "Unknown job"
-    if not any(sp.publishers_configured().values()):
+    configured = sp.publishers_configured()
+    if platforms is not None and any(configured.values()):
+        if not [p for p in platforms if configured.get(p)]:
+            raise ValueError("none of the chosen platforms is connected")
+        set_platforms(job_id, platforms)
+    if not any(configured.values()):
         if store.transition(job_id, "awaiting_approval", "approved"):
             return ("Approved and saved. Connect YouTube, Instagram or TikTok in the web UI (Publishing) "
                     "to post automatically; until then download it from the UI.")
@@ -569,12 +615,13 @@ def publish_clip(job_id: str) -> dict:
     video = Path(job["output_path"])
     caption = caption_text(job["title"] or "", meta)
     configured = sp.publishers_configured()
-    results, errors = {}, []
-    if not any(configured.values()):
-        errors.append("no publisher configured (connect YouTube, Instagram or TikTok in Publishing)")
+    targets = chosen_platforms(meta, configured)
+    results, errors, skipped = {}, [], []
+    if not targets:
+        errors.append("no publisher configured (connect YouTube, Instagram, Facebook or TikTok in Publishing)")
     cover = Path(meta["cover_path"]) if meta.get("cover_path") else None
     # Idempotent: a retry skips platforms that already succeeded.
-    if configured["youtube"] and not meta.get("youtube_id"):
+    if "youtube" in targets and not meta.get("youtube_id"):
         try:
             is_short = meta.get("format", "vertical") != "landscape" and float(meta.get("duration") or 0) <= 180
             results["youtube_id"] = sp.upload_youtube(video, job["title"] or "Clip", caption, shorts=is_short,
@@ -582,18 +629,28 @@ def publish_clip(job_id: str) -> dict:
             results["youtube_short"] = is_short
         except Exception as e:
             errors.append(f"YouTube: {e}")
-    if configured["instagram"] and not meta.get("instagram_id"):
+    if "instagram" in targets and not meta.get("instagram_id"):
         try:
             results["instagram_id"] = sp.upload_instagram(video, caption, thumb_offset_ms=meta.get("cover_offset_ms"))
             results["instagram_permalink"] = sp.instagram_permalink(results["instagram_id"])
         except Exception as e:
             errors.append(f"Instagram: {e}")
-    if configured.get("tiktok") and not meta.get("tiktok_id"):
+    if "facebook" in targets and not meta.get("facebook_id"):
+        if float(meta.get("duration") or 0) > sp.FB_REEL_MAX_S:
+            skipped.append(f"Facebook (Reels must be {sp.FB_REEL_MAX_S} s or shorter)")
+        else:
+            try:
+                results["facebook_id"] = sp.upload_facebook(video, caption)
+            except Exception as e:
+                errors.append(f"Facebook: {e}")
+    if "tiktok" in targets and not meta.get("tiktok_id"):
         try:
             results["tiktok_id"] = sp.upload_tiktok(video, caption, cover_ms=meta.get("cover_offset_ms") or 0)
         except Exception as e:
             errors.append(f"TikTok: {e}")
     store.update(job_id, meta=results)
+    if not errors and skipped and not any(meta.get(f"{t}_id") or results.get(f"{t}_id") for t in targets):
+        errors.extend(skipped)  # nothing was posted anywhere
     if errors:
         store.update(job_id, status="failed", error="; ".join(errors))
         _notify(f"⚠️ Clip {job_id} publish problems: {'; '.join(errors)}")
@@ -602,6 +659,8 @@ def publish_clip(job_id: str) -> dict:
         links = campaigns.post_links({**meta, **results})
         camp = campaigns.get(meta.get("campaign"))
         msg = "✅ Published:\n" + "\n".join(f"{l['platform']}: {l['url']}" for l in links)
+        if skipped:
+            msg += "\n\nSkipped: " + "; ".join(skipped)
         if camp:
             msg += f"\n\n💰 Submit these links to {camp['name']}" + (f": {camp['url']}" if camp.get("url") else "")
         _notify(msg)

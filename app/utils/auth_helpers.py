@@ -211,3 +211,28 @@ def tiktok_token(client: httpx.Client | None = None) -> str:
     finally:
         if client is None:
             c.close()
+
+
+# ---------------------------------------------------------------- Facebook Page (Reels)
+def _fb_path() -> Path:
+    return get_settings().secrets_dir / "facebook.json"
+
+
+def facebook_page() -> tuple[str, str]:
+    """(page id, page access token). A Page token made from a long-lived user token does not expire."""
+    p = _fb_path()
+    if not p.exists():
+        return "", ""
+    st = json.loads(p.read_text())
+    return st.get("page_id", ""), st.get("page_token", "")
+
+
+def facebook_configured() -> bool:
+    return all(facebook_page())
+
+
+def save_facebook(page_id: str, page_token: str) -> None:
+    p = _fb_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps({"page_id": page_id.strip(), "page_token": page_token.strip()}))
+    p.chmod(0o600)
