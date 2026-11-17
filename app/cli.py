@@ -14,6 +14,7 @@ import logging
 import os
 import sys
 from pathlib import Path
+from app.utils.logs import quiet_http_logs
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -38,6 +39,7 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("telegram-setup")
     a = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    quiet_http_logs()
 
     if a.cmd == "serve":
         return serve(a.host, a.port)

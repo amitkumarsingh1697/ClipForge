@@ -209,3 +209,27 @@ def test_telegram_edit_title_by_button_and_typed_text(monkeypatch):
     # without a pending edit, plain text is ignored
     assert tb.handle_update({"message": {"from": {"id": 42}, "chat": {"id": 42}, "text": "hello"}},
                             None, None, None, on_edit) is None
+
+
+def test_render_cuts_and_intro_together(short_portrait, tmp_path):
+    """Regression: jump cuts + zoom + progress bar + cover intro in one render used to stall ffmpeg on macOS."""
+    cover = tmp_path / "c.jpg"
+    video_editor.make_cover(short_portrait, cover, 2, 1080, 1920)
+    out = video_editor.render_clip(short_portrait, tmp_path / "o.mp4", 0, 10, out_w=1080, out_h=1920,
+                                   keep=[(0, 3), (5, 9)], zoom_times=[(1, 2)], progress_bar=True,
+                                   intro_image=cover, intro_s=0.25)
+    info = video_editor.probe(out)
+    assert abs(info.duration - 7.25) < 0.25 and info.has_audio and (info.width, info.height) == (1080, 1920)
+    assert not list(tmp_path.glob("o_*"))  # temp body / intro / list files cleaned up
+
+
+def test_logs_never_contain_tokens(caplog):
+    import logging
+
+    from app.utils.logs import RedactFilter, redact
+
+    assert "AAH" not in redact("https://api.telegram.org/bot123456789:AAHabcdefghijklmnopqrstuvwxyz0123/getUpdates")
+    log = logging.getLogger("t")
+    caplog.handler.addFilter(RedactFilter())
+    log.warning("failed: %s", "https://api.telegram.org/bot123456789:AAHabcdefghijklmnopqrstuvwxyz0123/x")
+    assert "AAH" not in caplog.text and "bot***" in caplog.text

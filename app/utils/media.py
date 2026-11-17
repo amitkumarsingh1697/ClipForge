@@ -16,7 +16,10 @@ class MediaError(RuntimeError):
 
 def run(cmd: list[str], cwd: Path | None = None, timeout: float | None = None) -> str:
     log.debug("run: %s", " ".join(map(str, cmd)))
-    p = subprocess.run(list(map(str, cmd)), cwd=cwd, capture_output=True, text=True, timeout=timeout)
+    try:
+        p = subprocess.run(list(map(str, cmd)), cwd=cwd, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired as e:  # a stuck ffmpeg must fail the job, not block the queue forever
+        raise MediaError(f"{cmd[0]} timed out after {timeout:.0f}s") from e
     if p.returncode != 0:
         raise MediaError(f"{cmd[0]} failed ({p.returncode}): {p.stderr[-1500:]}")
     return p.stdout

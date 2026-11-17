@@ -22,11 +22,13 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from pydantic import BaseModel, HttpUrl
 
 from app import pipeline
+from app.utils.logs import quiet_http_logs
 from app.config import get_settings
 from app.services import ingest, telegram_bot
 from app.utils.job_store import get_store
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+quiet_http_logs()
 app = FastAPI(title="ClipForge")
 ALLOWED_EXT = {".mp4", ".mov", ".mkv", ".webm", ".m4v"}
 UI_FILE = Path(__file__).parent / "static" / "index.html"

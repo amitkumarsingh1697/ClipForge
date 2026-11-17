@@ -132,10 +132,6 @@ def _face_detector():
         return None
 
 
-def keep_expr(keep: list[tuple[float, float]]) -> str:
-    return "+".join(f"between(t,{a:.3f},{b:.3f})" for a, b in keep)
-
-
 def zoom_filter(times: list[tuple[float, float]], out_w: int, out_h: int, amount: float = 0.12) -> str:
     """Punch-in zoom during the given (start, end) times: the frame jumps to 1+amount and back."""
     on = "+".join(f"between(it,{a:.3f},{b:.3f})" for a, b in times)
@@ -177,10 +173,13 @@ def render_clip(src: Path, dst: Path, start: float, end: float, ass_file: Path |
                 intro_image: Path | None = None, intro_s: float = 0.25) -> Path:
     """Render the final clip.
 
-    keep        jump cuts: only these (start, end) spans, relative to the clip, are kept
+    keep        jump cuts: only these (start, end) spans, relative to the clip, are kept.
+                Each span is its own seeked input joined by the concat filter (the
+                select/aselect approach can stall some ffmpeg builds).
     zoom_times  punch-in zooms, in output time (after jump cuts)
     intro_image the cover shown as the first frames, so every platform's
-                auto-thumbnail and the first thing a viewer sees is the cover
+                auto-thumbnail and the first thing a viewer sees is the cover. It is
+                encoded separately and joined without re-encoding (second, cheap pass).
     max_mb (optional) caps the file size; otherwise quality is capped at max_kbps
     (Telegram gets a separate preview when a clip is too big, see make_preview).
     """
@@ -189,10 +188,11 @@ def render_clip(src: Path, dst: Path, start: float, end: float, ass_file: Path |
     target = out_w / out_h
     if crop_x is None:
         crop_x = find_crop_x(src, start, duration, info, target_aspect=target) if info.aspect > target * 1.01 else 0
-    keep = [(max(0.0, a), min(duration, b)) for a, b in (keep or []) if b > a]
-    out_dur = sum(b - a for a, b in keep) if keep else duration
-    pre = f"fps=30,select='{keep_expr(keep)}',setpts=N/30/TB," if keep else ""
-    vf = pre + frame_filter(info, crop_x, out_w, out_h)
+    spans = [(max(0.0, a), min(duration, b)) for a, b in (keep or []) if min(duration, b) - max(0.0, a) > 0.05]
+    if not spans:
+        spans = [(0.0, duration)]
+    out_dur = sum(b - a for a, b in spans)
+    vf = frame_filter(info, crop_x, out_w, out_h)
     if zoom_times:
         vf += "," + zoom_filter(zoom_times, out_w, out_h)
     cwd = None
@@ -201,57 +201,83 @@ def render_clip(src: Path, dst: Path, start: float, end: float, ass_file: Path |
         ass_file = None
     if ass_file is not None:
         # Run ffmpeg *in* the subtitle's folder and pass a bare file name: this
-        # sidesteps the filtergraph escaping of ':' '\' and spaces in paths,
+        # sidesteps the filtergraph escaping of ':' '\\' and spaces in paths,
         # a classic cause of "Unable to open subtitles" failures.
         cwd = ass_file.parent
         vf += f",ass={ass_file.name}"
-    graph = f"[0:v]{vf}[v0]"
+
+    cmd = ["ffmpeg", "-y", "-v", "error", "-nostdin"]
+    for a, b in spans:
+        cmd += ["-ss", f"{start + a:.3f}", "-t", f"{b - a:.3f}", "-i", src.resolve()]
+    n = len(spans)
+    parts = []
+    if n == 1:
+        v_in, a_in = "[0:v]", "[0:a:0]"
+        graph = f"[0:v]fps=30,{vf}[v0]"
+    else:
+        for i in range(n):
+            parts.append(f"[{i}:v]fps=30,setpts=PTS-STARTPTS[cv{i}]")
+            if info.has_audio:
+                parts.append(f"[{i}:a:0]aresample=48000,aformat=channel_layouts=stereo,asetpts=PTS-STARTPTS[ca{i}]")
+        joined = "".join(f"[cv{i}]" + (f"[ca{i}]" if info.has_audio else "") for i in range(n))
+        parts.append(f"{joined}concat=n={n}:v=1:a={1 if info.has_audio else 0}" + ("[vj][aj]" if info.has_audio else "[vj]"))
+        a_in = "[aj]"
+        graph = ";".join(parts) + f";[vj]{vf}[v0]"
     out_label = "[v0]"
     if progress_bar:
         bar_h = max(12, min(out_w, out_h) // 54)  # ~20 px on 1080 wide: visible on phones
-        graph += (f";color=c=0x{bar_color}:s={out_w}x{bar_h}:r=30[bar];"
-                  f"[v0][bar]overlay=x='-w+w*t/{out_dur:.3f}':y=H-h:shortest=1:eval=frame[v1]")
+        graph += (f";color=c=0x{bar_color}:s={out_w}x{bar_h}:r=30:d={out_dur:.3f}[bar];"
+                  f"[v0][bar]overlay=x='-w+w*t/{out_dur:.3f}':y=H-h:eof_action=pass:eval=frame[v1]")
         out_label = "[v1]"
-    intro = intro_image is not None and intro_image.exists()
-    if intro:
-        graph += (f";{out_label}format=yuv420p,setsar=1[vm];"
-                  f"[1:v]scale={out_w}:{out_h}:force_original_aspect_ratio=increase,crop={out_w}:{out_h},"
-                  f"setsar=1,fps=30,format=yuv420p,trim=duration={intro_s:.3f},setpts=PTS-STARTPTS[vi];"
-                  f"[vi][vm]concat=n=2:v=1:a=0[vc]")
-        out_label = "[vc]"
-    total = out_dur + (intro_s if intro else 0.0)
-    audio_label = None
+    graph += f";{out_label}format=yuv420p,setsar=1[vout]"
     if info.has_audio:
-        a = "[0:a:0]"
-        chain = []
-        if keep:
-            chain.append(f"aselect='{keep_expr(keep)}',asetpts=N/SR/TB")
-        chain.append("loudnorm=I=-14:TP=-1.5:LRA=11")
-        if intro:
-            chain.append(f"adelay={int(intro_s * 1000)}:all=1")
-        graph += f";{a}{','.join(chain)}[aout]"
-        audio_label = "[aout]"
+        graph += f";{a_in}aresample=48000,aformat=channel_layouts=stereo,loudnorm=I=-14:TP=-1.5:LRA=11[aout]"
+    intro = intro_image is not None and intro_image.exists()
+    total = out_dur + (intro_s if intro else 0.0)
     audio_kbps = 128
     vmax = max_kbps
     if max_mb:
         vmax = max(1500, min(max_kbps, int(max_mb * 8 * 1024 / total) - audio_kbps))
-    cmd = ["ffmpeg", "-y", "-v", "error", "-ss", f"{start:.3f}", "-t", f"{duration:.3f}", "-i", src.resolve()]
+    enc = ["-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p", "-profile:v", "high",
+           "-maxrate", f"{vmax}k", "-bufsize", f"{vmax * 2}k", "-r", "30", "-video_track_timescale", "15360"]
+    aenc = ["-c:a", "aac", "-b:a", f"{audio_kbps}k", "-ar", "48000", "-ac", "2"]
+    body = dst.with_name(dst.stem + "_body.mp4") if intro else dst
+    cmd += ["-filter_complex", graph, "-map", "[vout]"]
+    if info.has_audio:
+        cmd += ["-map", "[aout]"] + aenc
+    cmd += enc + ["-t", f"{out_dur:.3f}", "-movflags", "+faststart", body.resolve()]
+    run(cmd, cwd=cwd, timeout=max(300.0, out_dur * 30))
     if intro:
-        cmd += ["-loop", "1", "-t", f"{intro_s + 0.2:.3f}", "-i", intro_image.resolve()]
-    cmd += ["-filter_complex", graph, "-map", out_label]
-    if audio_label:
-        cmd += ["-map", audio_label]
-    cmd += ["-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p",
-            "-maxrate", f"{vmax}k", "-bufsize", f"{vmax * 2}k", "-r", "30",
-            "-movflags", "+faststart", "-t", f"{total:.3f}"]
-    if audio_label:
-        cmd += ["-c:a", "aac", "-b:a", f"{audio_kbps}k", "-ar", "48000"]
-    cmd += [dst.resolve()]
-    run(cmd, cwd=cwd)
+        _prepend_intro(intro_image, body, dst, out_w, out_h, intro_s, info.has_audio, enc, aenc)
+        body.unlink(missing_ok=True)
     size_mb = dst.stat().st_size / 1024 / 1024
     log.info("rendered %s (%.1fs, %.1f MB, crop_x=%s, cuts=%d, zooms=%d, intro=%s)", dst.name, total, size_mb,
-             crop_x, max(0, len(keep) - 1), len(zoom_times or []), intro)
+             crop_x, n - 1, len(zoom_times or []), intro)
     return dst
+
+
+def _prepend_intro(image: Path, body: Path, dst: Path, out_w: int, out_h: int, intro_s: float,
+                   has_audio: bool, enc: list, aenc: list) -> None:
+    """Encode the cover as a short clip with the body's exact settings, then join both without re-encoding."""
+    intro = dst.with_name(dst.stem + "_intro.mp4")
+    lst = dst.with_name(dst.stem + "_concat.txt")
+    cmd = ["ffmpeg", "-y", "-v", "error", "-nostdin", "-loop", "1", "-framerate", "30", "-t", f"{intro_s:.3f}",
+           "-i", image.resolve()]
+    if has_audio:
+        cmd += ["-f", "lavfi", "-t", f"{intro_s:.3f}", "-i", "anullsrc=r=48000:cl=stereo"]
+    cmd += ["-vf", f"scale={out_w}:{out_h}:force_original_aspect_ratio=increase,crop={out_w}:{out_h},setsar=1,"
+                   f"format=yuv420p", "-map", "0:v"]
+    if has_audio:
+        cmd += ["-map", "1:a"] + aenc
+    cmd += enc + ["-t", f"{intro_s:.3f}", intro.resolve()]
+    try:
+        run(cmd, timeout=120)
+        lst.write_text(f"file '{intro.resolve()}'\nfile '{body.resolve()}'\n")
+        run(["ffmpeg", "-y", "-v", "error", "-nostdin", "-f", "concat", "-safe", "0", "-i", lst.resolve(),
+             "-c", "copy", "-movflags", "+faststart", dst.resolve()], timeout=300)
+    finally:
+        intro.unlink(missing_ok=True)
+        lst.unlink(missing_ok=True)
 
 
 def jump_cut_spans(words, duration: float, min_gap: float = 0.7, pad: float = 0.15,
