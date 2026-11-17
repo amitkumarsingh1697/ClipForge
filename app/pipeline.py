@@ -11,7 +11,8 @@ import traceback
 from pathlib import Path
 
 from app.config import get_settings
-from app.services import highlight_ai, ingest, telegram_bot, transcriber, video_editor
+from app.services import highlight_ai, ingest, llm, telegram_bot, transcriber, video_editor
+from app.utils import runtime_settings
 from app.utils.job_store import get_store
 
 log = logging.getLogger(__name__)
@@ -126,8 +127,14 @@ def ingest_source(job_id: str) -> list[str]:
             raise FileNotFoundError(f"raw file missing for job {job_id}")
         store.update(job_id, status="analyzing")
         opts = job_options(job)
+        rs = runtime_settings.load()
+        use_rank = llm.enabled(rs) and rs["llm_rank"]
         hls = highlight_ai.find_highlights(raw, s.temp_dir, target_s=opts["clip_seconds"], min_s=s.clip_min_s,
-                                           max_s=s.clip_max_s, top_n=opts["clips"])
+                                           max_s=s.clip_max_s, top_n=opts["clips"] * (3 if use_rank else 1))
+        if use_rank and len(hls) > opts["clips"]:
+            hls = llm_pick(raw, hls, opts["clips"], title, rs, job_id)
+        else:
+            hls = hls[:opts["clips"]]
         clip_ids = _make_clips(job_id, job, raw, hls, title, opts)
         store.update(job_id, status="done")
         for cid in clip_ids:
@@ -138,6 +145,37 @@ def ingest_source(job_id: str) -> list[str]:
         store.fail(job_id, f"{e}\n{traceback.format_exc()}")
         _notify(f"❌ Job {job_id} failed while ingesting: {e}")
         return []
+
+
+def _transcript(raw: Path, start: float, end: float, rs: dict) -> list:
+    s = get_settings()
+    return transcriber.transcribe_words(raw, s.temp_dir, start, end - start, model=rs["whisper_model"],
+                                        device=s.whisper_device, compute_type=s.whisper_compute_type,
+                                        language=s.whisper_language)
+
+
+def llm_pick(raw: Path, hls: list, n: int, title: str | None, rs: dict, job_id: str) -> list:
+    """Re-rank audio candidates with the LLM using what is said in each; falls back to audio order."""
+    import numpy as np
+
+    try:
+        cands = []
+        for i, h in enumerate(hls):
+            words = _transcript(raw, h.start, h.end, rs)
+            cands.append({"id": i, "start": h.start, "end": h.end, "score": h.score,
+                          "transcript": " ".join(w.text for w in words)})
+        llm_scores = llm.rank_moments(cands, title or raw.stem, rs)
+        audio = np.array([h.score for h in hls], dtype=float)
+        a = (audio - audio.mean()) / (audio.std() or 1.0)
+        l_raw = np.array([llm_scores.get(i, 5.0) for i in range(len(hls))])
+        lz = (l_raw - l_raw.mean()) / (l_raw.std() or 1.0)
+        order = np.argsort(-(0.5 * a + 0.5 * lz))[:n]
+        get_store().update(job_id, meta={"llm_rank": {str(i): llm_scores.get(i) for i in range(len(hls))}})
+        return sorted((hls[int(i)] for i in order), key=lambda h: h.start)
+    except Exception as e:
+        log.warning("LLM ranking skipped: %s", e)
+        get_store().update(job_id, meta={"llm_error": str(e)[:300]})
+        return sorted(sorted(hls, key=lambda h: -h.score)[:n], key=lambda h: h.start)
 
 
 def _make_clips(parent_id: str, job: dict, raw: Path, hls, title: str | None, opts: dict,
@@ -157,8 +195,11 @@ def _make_clips(parent_id: str, job: dict, raw: Path, hls, title: str | None, op
 
 
 # ---------------------------------------------------------------- render
-def caption_text(title: str) -> str:
-    return f"{title}\n\n{get_settings().default_hashtags}".strip()
+def caption_text(title: str, meta: dict | None = None) -> str:
+    md = (meta or {}).get("llm") or {}
+    tags = " ".join(md.get("hashtags") or []) or get_settings().default_hashtags
+    body = "\n\n".join(x for x in (title, md.get("caption")) if x)
+    return f"{body}\n\n{tags}".strip()
 
 
 def render_clip(job_id: str) -> Path | None:
@@ -178,17 +219,31 @@ def render_clip(job_id: str) -> Path | None:
             want_captions = False
             store.update(job_id, meta={"caption_error": "ffmpeg was built without libass; install an ffmpeg "
                                                         "with libass to get captions"})
-        if want_captions:
+        rs = runtime_settings.load()
+        use_llm_meta = llm.enabled(rs) and rs["llm_titles"]
+        words: list = []
+        if want_captions or use_llm_meta:
             try:
-                words = transcriber.transcribe_words(raw, s.temp_dir, start, end - start, model=s.whisper_model,
-                                                     device=s.whisper_device, compute_type=s.whisper_compute_type,
-                                                     language=s.whisper_language)
+                words = _transcript(raw, start, end, rs)
                 n_words = len(words)
-                ass = transcriber.write_ass(words, s.temp_dir / f"{job_id}.ass", out_w, out_h,
-                                            s.caption_words_per_line, s.caption_font)
             except Exception as e:  # captions are optional; never lose the clip over them
-                log.warning("captions skipped for %s: %s", job_id, e)
+                log.warning("transcription skipped for %s: %s", job_id, e)
                 store.update(job_id, meta={"caption_error": str(e)[:300]})
+        if want_captions and words:
+            ass = transcriber.write_ass(words, s.temp_dir / f"{job_id}.ass", out_w, out_h,
+                                        s.caption_words_per_line, s.caption_font)
+        if use_llm_meta:
+            try:
+                parent = store.get(job["parent_id"]) if job.get("parent_id") else None
+                md = llm.clip_metadata(" ".join(w.text for w in words),
+                                       (parent or {}).get("title") or job["title"] or "", fmt, rs)
+                if md["title"]:
+                    store.update(job_id, title=md["title"])
+                    job["title"] = md["title"]
+                store.update(job_id, meta={"llm": md})
+            except Exception as e:
+                log.warning("LLM metadata skipped for %s: %s", job_id, e)
+                store.update(job_id, meta={"llm_error": str(e)[:300]})
         out = s.processed_dir / f"{job_id}.mp4"
         video_editor.render_clip(raw, out, start, end, ass_file=ass, out_w=out_w, out_h=out_h,
                                  max_mb=s.max_output_mb)
@@ -198,7 +253,8 @@ def render_clip(job_id: str) -> Path | None:
         store.transition(job_id, "rendering", "awaiting_approval")
         if s.telegram_bot_token and s.telegram_owner_chat_id:
             mid = telegram_bot.send_for_approval(
-                job_id, out, f"{job['title']}\n{end-start:.0f}s {fmt} clip from {job['source'] or raw.name}")
+                job_id, out, f"{caption_text(job['title'] or '', store.get(job_id)['meta'])}\n\n"
+                             f"{end-start:.0f}s {fmt} clip from {job['source'] or raw.name}")
             store.update(job_id, meta={"telegram_message_id": mid})
         return out
     except Exception as e:
@@ -238,7 +294,7 @@ def publish_clip(job_id: str) -> dict:
         return {}
     meta = job["meta"]
     video = Path(job["output_path"])
-    caption = caption_text(job["title"] or "")
+    caption = caption_text(job["title"] or "", meta)
     configured = sp.publishers_configured()
     results, errors = {}, []
     if not any(configured.values()):

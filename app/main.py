@@ -81,6 +81,56 @@ def api_config():
             **publishers_configured()}
 
 
+class SettingsIn(BaseModel):
+    llm_provider: str | None = None
+    llm_base_url: str | None = None
+    llm_model: str | None = None
+    llm_api_key: str | None = None
+    llm_titles: bool | None = None
+    llm_rank: bool | None = None
+    whisper_model: str | None = None
+
+
+@app.get("/api/settings", dependencies=[Depends(require_token)])
+def get_runtime_settings():
+    from app.utils import runtime_settings
+
+    return runtime_settings.public(runtime_settings.load())
+
+
+@app.put("/api/settings", dependencies=[Depends(require_token)])
+def put_runtime_settings(body: SettingsIn):
+    from app.utils import runtime_settings
+
+    changes = body.model_dump(exclude_none=True)
+    try:
+        return runtime_settings.public(runtime_settings.save(changes))
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+
+
+@app.get("/api/llm/models", dependencies=[Depends(require_token)])
+def llm_models(provider: str, base_url: str):
+    from app.services import llm
+    from app.utils import runtime_settings
+
+    try:
+        return {"models": llm.list_models(provider, base_url, runtime_settings.load()["llm_api_key"])}
+    except llm.LLMError as e:
+        raise HTTPException(502, str(e))
+
+
+@app.post("/api/llm/test", dependencies=[Depends(require_token)])
+def llm_test():
+    from app.services import llm
+
+    try:
+        md = llm.clip_metadata("no way, did you see that jump? that was insane", "Test video", "vertical")
+        return {"ok": True, "sample": md}
+    except llm.LLMError as e:
+        raise HTTPException(502, str(e))
+
+
 @app.get("/api/jobs", dependencies=[Depends(require_token)])
 def api_jobs(limit: int = 30):
     store = get_store()

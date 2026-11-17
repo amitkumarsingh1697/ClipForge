@@ -68,6 +68,14 @@ h2 { font-size: 15px; margin: 0 0 12px; }
 .empty { color: var(--muted); padding: 10px 0; }
 .hidden { display: none !important; }
 .switch { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+details.panel > summary { cursor: pointer; font-weight: 600; list-style: none; display: flex; justify-content: space-between; gap: 10px; }
+details.panel > summary::-webkit-details-marker { display: none; }
+details.panel > summary::after { content: "Show"; color: var(--muted); font-weight: 400; font-size: 13px; }
+details.panel[open] > summary::after { content: "Hide"; }
+select { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; }
+.inline { display: flex; gap: 8px; } .inline > :first-child { flex: 1; min-width: 0; }
+.clip-title { font-weight: 600; font-size: 13px; overflow-wrap: anywhere; }
+.tags { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 @media (max-width: 520px) { header { padding: 12px 16px; } .panel { padding: 14px; } }
 </style>
 </head>
@@ -109,6 +117,33 @@ h2 { font-size: 15px; margin: 0 0 12px; }
       <span class="msg" id="formMsg"></span>
     </div>
   </section>
+
+  <details class="panel" id="aiPanel">
+    <summary>AI settings <span class="meta" id="aiSummary"></span></summary>
+    <p class="msg">Everything runs on this computer. An LLM is optional: it writes titles, captions and hashtags from what is said in each clip, and can help choose which moments become clips.</p>
+    <div class="row">
+      <div><label class="field">LLM</label>
+        <select id="llmProvider">
+          <option value="none">None (no LLM)</option>
+          <option value="ollama">Ollama</option>
+          <option value="openai">OpenAI-compatible (LM Studio, llama.cpp…)</option>
+        </select></div>
+      <div><label class="field">Server URL</label><input type="text" id="llmUrl"></div>
+      <div><label class="field">Model</label>
+        <div class="inline"><select id="llmModel"></select><button class="btn" id="llmRefresh" type="button">Refresh</button></div></div>
+      <div id="keyBox"><label class="field">API key (only if your server needs one)</label><input type="password" id="llmKey" placeholder="unchanged"></div>
+    </div>
+    <div class="row">
+      <div><label class="switch"><input type="checkbox" id="llmTitles"> Write titles, captions &amp; hashtags</label></div>
+      <div><label class="switch"><input type="checkbox" id="llmRank"> Let the LLM help pick the best moments (slower)</label></div>
+      <div><label class="field">Speech-to-text (Whisper) model</label><select id="whisperModel"></select></div>
+    </div>
+    <div class="actions">
+      <button class="primary" id="saveAi" type="button">Save</button>
+      <button class="btn" id="testAi" type="button">Test LLM</button>
+      <span class="msg" id="aiMsg"></span>
+    </div>
+  </details>
 
   <section class="panel">
     <h2>Jobs</h2>
@@ -217,6 +252,8 @@ function clipHtml(c) {
   if (c.meta && c.meta.instagram_id) links.push("Instagram ✓");
   return `<div class="frame ${fmt}">${hasVideo ? `<video src="${mediaUrl(c.id)}" controls preload="metadata" playsinline></video>` : `<span class="ph">${esc(LABEL[c.status] || c.status)}…</span>`}</div>
     <div class="info">
+      <div class="clip-title">${esc(c.title || "")}</div>
+      ${c.meta && c.meta.llm && c.meta.llm.hashtags ? `<div class="tags">${esc(c.meta.llm.hashtags.join(" "))}</div>` : ""}
       <div><span class="status ${c.status}">${esc(LABEL[c.status] || c.status)}</span> <span class="meta">${esc(fmt)} · ${dur}</span></div>
       ${links.length ? `<div class="meta">${links.join(" · ")}</div>` : ""}
       ${c.status === "failed" && c.error ? `<div class="err-text">${esc(c.error.split("\n")[0])}</div>` : ""}
@@ -254,7 +291,7 @@ function renderJobs(jobs) {
     j.clips.forEach((c) => {
       let ce = document.getElementById("clip-" + c.id);
       if (!ce) { ce = document.createElement("div"); ce.className = "clip"; ce.id = "clip-" + c.id; grid.appendChild(ce); }
-      const key = c.status + JSON.stringify(c.meta || {}) + (c.error || "");
+      const key = c.status + (c.title || "") + JSON.stringify(c.meta || {}) + (c.error || "");
       if (seen[c.id] !== key) { ce.innerHTML = clipHtml(c); seen[c.id] = key; }
     });
   });
@@ -275,6 +312,71 @@ async function refresh() {
   try { renderJobs(await api("/api/jobs")); } catch (e) {}
 }
 
+const DEFAULT_URL = { ollama: "http://localhost:11434", openai: "http://localhost:1234/v1", none: "" };
+function aiVisibility() {
+  const p = $("llmProvider").value;
+  ["llmUrl", "llmModel", "llmRefresh", "llmTitles", "llmRank", "testAi"].forEach((id) => $(id).disabled = p === "none");
+  $("keyBox").classList.toggle("hidden", p !== "openai");
+}
+async function loadModels(selected) {
+  const p = $("llmProvider").value, sel = $("llmModel"), msg = $("aiMsg");
+  sel.innerHTML = selected ? `<option>${esc(selected)}</option>` : "";
+  if (p === "none") return;
+  msg.className = "msg"; msg.textContent = "Looking for models…";
+  try {
+    const r = await api(`/api/llm/models?provider=${p}&base_url=${encodeURIComponent($("llmUrl").value.trim())}`);
+    const models = r.models.length ? r.models : [];
+    sel.innerHTML = models.map((m) => `<option ${m === selected ? "selected" : ""}>${esc(m)}</option>`).join("")
+      || '<option value="">No models found</option>';
+    if (selected && !models.includes(selected)) sel.insertAdjacentHTML("afterbegin", `<option selected>${esc(selected)}</option>`);
+    msg.textContent = models.length ? `${models.length} model${models.length === 1 ? "" : "s"} found.` :
+      (p === "ollama" ? "Ollama is running but has no models. Run: ollama pull llama3.2" : "No models found.");
+  } catch (e) { msg.className = "msg err"; msg.textContent = e.message; }
+}
+async function initAi() {
+  const st = await api("/api/settings");
+  $("llmProvider").value = st.llm_provider;
+  $("llmUrl").value = st.llm_base_url || DEFAULT_URL[st.llm_provider] || "";
+  $("llmTitles").checked = st.llm_titles; $("llmRank").checked = st.llm_rank;
+  $("whisperModel").innerHTML = st.whisper_models.map((m) => `<option ${m === st.whisper_model ? "selected" : ""}>${m}</option>`).join("");
+  $("aiSummary").textContent = st.llm_provider === "none" ? "No LLM" : `${st.llm_provider} · ${st.llm_model || "no model"}`;
+  aiVisibility();
+  if (st.llm_provider !== "none") loadModels(st.llm_model);
+}
+$("llmProvider").onchange = () => {
+  $("llmUrl").value = DEFAULT_URL[$("llmProvider").value]; aiVisibility(); loadModels("");
+};
+$("llmRefresh").onclick = () => loadModels($("llmModel").value);
+$("saveAi").onclick = async () => {
+  const body = { llm_provider: $("llmProvider").value, llm_base_url: $("llmUrl").value.trim(),
+    llm_model: $("llmModel").value || "", llm_titles: $("llmTitles").checked, llm_rank: $("llmRank").checked,
+    whisper_model: $("whisperModel").value };
+  if ($("llmKey").value) body.llm_api_key = $("llmKey").value;
+  const msg = $("aiMsg");
+  try {
+    if (body.llm_provider !== "none" && !body.llm_model) throw new Error("Pick a model first.");
+    const st = await api("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    $("llmKey").value = "";
+    msg.className = "msg"; msg.textContent = "Saved. New clips will use these settings.";
+    $("aiSummary").textContent = st.llm_provider === "none" ? "No LLM" : `${st.llm_provider} · ${st.llm_model}`;
+    initPills();
+  } catch (e) { msg.className = "msg err"; msg.textContent = e.message; }
+};
+$("testAi").onclick = async () => {
+  const msg = $("aiMsg");
+  msg.className = "msg"; msg.textContent = "Asking the model (save first if you changed anything)…";
+  try {
+    const r = await api("/api/llm/test", { method: "POST" });
+    msg.textContent = `Works. Sample title: “${r.sample.title}” ${r.sample.hashtags.join(" ")}`;
+  } catch (e) { msg.className = "msg err"; msg.textContent = e.message; }
+};
+async function initPills() {
+  const c = await api("/api/config"), st = await api("/api/settings");
+  $("pills").innerHTML = [["Telegram", c.telegram], ["YouTube", c.youtube], ["Instagram", c.instagram],
+    [st.llm_provider === "none" ? "LLM" : `LLM: ${st.llm_model}`, st.llm_provider !== "none" && !!st.llm_model]]
+    .map(([n, on]) => `<span class="pill ${on ? "on" : ""}">${esc(n)} ${on ? "✓" : "not set"}</span>`).join("");
+}
+
 let cfg;
 async function init() {
   try { cfg = await api("/api/config"); } catch (e) { return; }
@@ -284,8 +386,8 @@ async function init() {
   $("lenOut").textContent = cfg.clip_seconds;
   $("len").oninput = () => $("lenOut").textContent = $("len").value;
   $("captions").checked = cfg.captions;
-  $("pills").innerHTML = [["Telegram", cfg.telegram], ["YouTube", cfg.youtube], ["Instagram", cfg.instagram]]
-    .map(([n, on]) => `<span class="pill ${on ? "on" : ""}">${n} ${on ? "connected" : "not set"}</span>`).join("");
+  initPills();
+  initAi();
   refresh();
 }
 init();

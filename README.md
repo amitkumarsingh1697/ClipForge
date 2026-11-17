@@ -19,6 +19,14 @@ Paste a link, pick formats, press **Make clips**. Clips appear below with Approv
 3. Run `python -m app.cli telegram-setup` and send `/start` to your new bot. Your chat id is saved automatically.
 4. Restart `python -m app.cli serve`. Now send the bot any link (add words like `landscape square` to choose shapes) and approve clips from your phone.
 
+## Local LLM (optional)
+No LLM is needed to make clips: highlights come from audio and motion analysis, and captions from local Whisper. A local LLM adds titles, captions and hashtags written from what is said, and can help pick the best moments.
+```bash
+brew install ollama && brew services start ollama
+ollama pull llama3.1:8b
+```
+Then open **AI settings** in the UI, choose Ollama and the model, and press Save, then Test LLM. LM Studio, llama.cpp and other OpenAI-compatible servers work too (URL like `http://localhost:1234/v1`). The Whisper model can be changed there as well.
+
 ## Command line
 ```bash
 python -m app.cli clip "https://www.youtube.com/watch?v=..." --formats vertical,landscape --clips 3
