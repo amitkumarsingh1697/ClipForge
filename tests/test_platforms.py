@@ -71,11 +71,12 @@ def test_telegram_platform_toggles(short_portrait, talky, monkeypatch):
     calls = []
     monkeypatch.setattr(tb, "_api", lambda method, **k: calls.append((method, k.get("data"))) or {})
     rows = tb.approval_markup(cid)["inline_keyboard"]
-    toggles = [b["text"] for b in rows[2]]
-    assert toggles == ["☑️ YouTube", "☑️ Instagram", "☑️ Facebook"]  # TikTok isn't connected
+    toggles = [b["text"] for r in rows[2:] for b in r]
+    assert toggles == ["☑️ YouTube", "☑️ Instagram", "☑️ Facebook", "🔒 TikTok"]  # TikTok isn't connected
     assert all(len(b["callback_data"].encode()) <= 64 for r in rows for b in r)
     cb = lambda data: {"callback_query": {"id": "1", "from": {"id": 42}, "data": data,
                                           "message": {"chat": {"id": 42}, "message_id": 5}}}
+    assert "isn't connected" in tb.handle_update(cb(f"p:{cid}:tt"), None, None, None)
     assert tb.handle_update(cb(f"p:{cid}:yt"), None, None, None) == "Will post to: Instagram, Facebook"
     edited = json.loads([d for m, d in calls if m == "editMessageReplyMarkup"][-1]["reply_markup"])
     texts = [b["text"] for r in edited["inline_keyboard"] for b in r]
@@ -125,3 +126,16 @@ def test_upload_facebook_reel_flow(tmp_path, monkeypatch):
         assert sp.upload_facebook(video, "caption #tag", client=c, poll_s=0) == "v9"
     assert [s[1] for s in seen][:3] == ["graph.facebook.com", "rupload.facebook.com", "graph.facebook.com"]
     assert sp.publishers_configured()["facebook"] is True
+
+
+def test_picker_shown_even_with_nothing_connected(short_portrait, talky, monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "x")
+    monkeypatch.setenv("TELEGRAM_OWNER_CHAT_ID", "42")
+    from app.config import get_settings
+    get_settings.cache_clear()
+    from app.services import telegram_bot as tb
+
+    monkeypatch.setattr(sp, "publishers_configured", lambda: {k: False for k in sp.PLATFORM_KEYS})
+    cid = _clip(short_portrait, talky)
+    texts = [b["text"] for r in tb.approval_markup(cid)["inline_keyboard"][2:] for b in r]
+    assert texts == ["🔒 YouTube", "🔒 Instagram", "🔒 Facebook", "🔒 TikTok"]
