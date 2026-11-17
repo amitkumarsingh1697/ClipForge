@@ -102,10 +102,14 @@ def parse_json(text: str) -> dict:
 
 
 META_SYSTEM = (
-    "You write metadata for short-form social videos (YouTube Shorts, Instagram Reels, TikTok). "
-    "Titles are punchy hooks under 70 characters, no clickbait lies, at most one emoji. "
-    "Reply with JSON only: {\"title\": str, \"caption\": str, \"hashtags\": [str]}. "
-    "caption: 1-2 short sentences. hashtags: 3-6 relevant tags, each starting with #."
+    "You are a viral short-form video editor (YouTube Shorts, Instagram Reels, TikTok). From what is said in a clip, "
+    "write: a HOOK of 3-7 words shown big on screen in the first 3 seconds (curiosity gap, tension or a bold claim, "
+    "e.g. 'He did NOT expect this', 'Wait for the ending'); a TITLE under 70 characters that makes people tap "
+    "(no lies, at most one emoji); a CAPTION of 1-2 short sentences ending with a question or call to comment; "
+    "3-6 relevant HASHTAGS; 2-5 KEYWORDS from the transcript worth highlighting in the captions; and VIRALITY, "
+    "your honest 0-100 estimate of how well this clip would perform on its own. "
+    "Reply with JSON only: {\"hook\": str, \"title\": str, \"caption\": str, \"hashtags\": [str], "
+    "\"keywords\": [str], \"virality\": int}."
 )
 
 
@@ -120,7 +124,16 @@ def clip_metadata(transcript: str, source_title: str, fmt: str, cfg: dict | None
     if isinstance(tags, str):
         tags = tags.split()
     tags = [t if t.startswith("#") else f"#{t}" for t in (re.sub(r"\s+", "", str(t)) for t in tags) if t.strip("#")]
-    return {"title": title, "caption": str(d.get("caption") or "").strip()[:1500], "hashtags": tags[:8]}
+    kws = d.get("keywords") or []
+    if isinstance(kws, str):
+        kws = kws.split(",")
+    try:
+        vir = max(0, min(100, int(float(d.get("virality")))))
+    except (TypeError, ValueError):
+        vir = None
+    hook = " ".join(str(d.get("hook") or "").strip().strip('"').split()[:9])
+    return {"title": title, "hook": hook, "caption": str(d.get("caption") or "").strip()[:1500],
+            "hashtags": tags[:8], "keywords": [str(k).strip() for k in kws if str(k).strip()][:6], "virality": vir}
 
 
 RANK_SYSTEM = (

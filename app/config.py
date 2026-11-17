@@ -32,12 +32,16 @@ class Settings(BaseSettings):
     # --- highlight detection / clip shape -----------------------------------
     clip_min_s: float = 15.0
     clip_target_s: float = 30.0
-    clip_max_s: float = 60.0
+    clip_max_s: float = 300.0  # Shorts count up to 3 min; longer clips upload as normal videos
     clips_per_source: int = 3  # long VODs yield up to N clips
     output_formats: str = "vertical"  # comma list of vertical,portrait,square,landscape
     output_width: int = 1080   # legacy; formats decide the size now
     output_height: int = 1920
-    max_output_mb: float = 48.0  # Telegram bot upload limit is 50 MB
+    max_output_mb: float = 48.0  # Telegram bot upload limit is 50 MB (bigger clips get a preview copy)
+    caption_style: str = "pop"     # pop | classic | minimal | none
+    hook_overlay: bool = True      # big hook title for the first seconds
+    hook_seconds: float = 3.0
+    progress_bar: bool = True
 
     # --- transcription ------------------------------------------------------
     whisper_model: str = "small"  # tiny/base/small/medium/large-v3

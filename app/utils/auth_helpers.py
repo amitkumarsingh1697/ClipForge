@@ -98,3 +98,69 @@ def instagram_token(client: httpx.Client | None = None) -> str:
             if client is None:
                 c.close()
     return token
+
+
+# ---------------------------------------------------------------- set up from the web UI
+def _ig_account_path() -> Path:
+    return get_settings().secrets_dir / "instagram_account.json"
+
+
+def instagram_user_id() -> str:
+    p = _ig_account_path()
+    if p.exists():
+        uid = json.loads(p.read_text()).get("user_id")
+        if uid:
+            return str(uid)
+    return get_settings().instagram_user_id
+
+
+def save_instagram(user_id: str, access_token: str, app_id: str = "", app_secret: str = "") -> None:
+    d = get_settings().secrets_dir
+    d.mkdir(parents=True, exist_ok=True)
+    acc = _ig_account_path()
+    acc.write_text(json.dumps({"user_id": user_id.strip(), "app_id": app_id.strip(), "app_secret": app_secret.strip()}))
+    acc.chmod(0o600)
+    tok = _ig_state_path()
+    tok.write_text(json.dumps({"access_token": access_token.strip(), "issued_at": time.time()}))
+    tok.chmod(0o600)
+
+
+def youtube_client_secrets_path() -> Path:
+    s = get_settings()
+    if s.youtube_client_secrets and Path(s.youtube_client_secrets).exists():
+        return Path(s.youtube_client_secrets)
+    return s.secrets_dir / "client_secret.json"
+
+
+_pending_flows: dict = {}
+
+
+def youtube_auth_url(redirect_uri: str) -> str:
+    """Browser OAuth for a local install: Google allows http://localhost redirects."""
+    import os
+
+    from google_auth_oauthlib.flow import Flow
+
+    os.environ.setdefault("OAUTHLIB_INSECURE_TRANSPORT", "1")  # only localhost http is used
+    secrets = youtube_client_secrets_path()
+    if not secrets.exists():
+        raise RuntimeError("Upload your Google OAuth client JSON first")
+    flow = Flow.from_client_secrets_file(str(secrets), scopes=YOUTUBE_SCOPES, redirect_uri=redirect_uri)
+    url, state = flow.authorization_url(access_type="offline", prompt="consent", include_granted_scopes="true")
+    _pending_flows[state] = flow
+    return url
+
+
+def youtube_finish(state: str, authorization_response: str) -> Path:
+    import os
+
+    os.environ.setdefault("OAUTHLIB_INSECURE_TRANSPORT", "1")
+    flow = _pending_flows.pop(state, None)
+    if flow is None:
+        raise RuntimeError("This sign-in link expired; press Connect YouTube again")
+    flow.fetch_token(authorization_response=authorization_response)
+    path = youtube_token_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(flow.credentials.to_json())
+    path.chmod(0o600)
+    return path

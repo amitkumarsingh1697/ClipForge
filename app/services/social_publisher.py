@@ -44,7 +44,7 @@ def youtube_title(title: str, shorts: bool = True) -> str:
 
 
 def upload_youtube(video: Path, title: str, description: str, tags: list[str] | None = None,
-                   shorts: bool = True) -> str:
+                   shorts: bool = True, thumbnail: Path | None = None) -> str:
     from googleapiclient.discovery import build
     from googleapiclient.errors import HttpError
     from googleapiclient.http import MediaFileUpload
@@ -73,21 +73,32 @@ def upload_youtube(video: Path, title: str, description: str, tags: list[str] | 
             raise PublishError(f"YouTube upload failed: {reason[:300]}") from e
     vid = response["id"]
     log.info("youtube upload ok: %s (%s)", vid, s.youtube_privacy)
+    if thumbnail is not None and thumbnail.exists() and not shorts:
+        # Custom thumbnails need a phone-verified channel and don't apply to Shorts; never fail the upload over it.
+        try:
+            yt.thumbnails().set(videoId=vid, media_body=MediaFileUpload(str(thumbnail), mimetype="image/jpeg")).execute()
+        except HttpError as e:
+            log.warning("youtube thumbnail not set: %s", e)
     return vid
 
 
 def upload_instagram(video: Path, caption: str, client: httpx.Client | None = None,
-                     poll_s: float = 5.0, timeout_s: float = 600) -> str:
+                     poll_s: float = 5.0, timeout_s: float = 600, thumb_offset_ms: int | None = None) -> str:
+    from app.utils.auth_helpers import instagram_user_id
+
     s = get_settings()
-    if not s.instagram_user_id:
+    ig_user = instagram_user_id()
+    if not ig_user:
         raise PublishError("INSTAGRAM_USER_ID is not set (must be a Business/Creator account id)")
     c = client or httpx.Client(timeout=120)
     token = instagram_token(c)
     graph = f"https://graph.facebook.com/{s.graph_api_version}"
     try:
-        r = c.post(f"{graph}/{s.instagram_user_id}/media", data={
-            "media_type": "REELS", "upload_type": "resumable", "caption": caption[:2200],
-            "share_to_feed": "true", "access_token": token})
+        form = {"media_type": "REELS", "upload_type": "resumable", "caption": caption[:2200],
+                "share_to_feed": "true", "access_token": token}
+        if thumb_offset_ms is not None:
+            form["thumb_offset"] = str(max(0, int(thumb_offset_ms)))  # cover frame
+        r = c.post(f"{graph}/{ig_user}/media", data=form)
         if r.status_code != 200:
             raise PublishError(f"IG container create failed: {r.text[:300]}")
         container = r.json()["id"]
@@ -109,7 +120,7 @@ def upload_instagram(video: Path, caption: str, client: httpx.Client | None = No
             if time.time() > deadline:
                 raise PublishError("IG processing timed out")
             time.sleep(poll_s)
-        r = c.post(f"{graph}/{s.instagram_user_id}/media_publish",
+        r = c.post(f"{graph}/{ig_user}/media_publish",
                    data={"creation_id": container, "access_token": token})
         if r.status_code != 200:
             raise PublishError(f"IG publish failed: {r.text[:300]}")
@@ -123,8 +134,8 @@ def upload_instagram(video: Path, caption: str, client: httpx.Client | None = No
 
 def publishers_configured() -> dict[str, bool]:
     s = get_settings()
-    from app.utils.auth_helpers import youtube_token_path
+    from app.utils.auth_helpers import instagram_user_id, youtube_token_path
 
     return {"youtube": youtube_token_path().exists(),
-            "instagram": bool(s.instagram_user_id and (s.instagram_access_token or
+            "instagram": bool(instagram_user_id() and (s.instagram_access_token or
                                                        (s.secrets_dir / "instagram_token.json").exists()))}

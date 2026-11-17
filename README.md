@@ -11,7 +11,7 @@ python3.12 -m venv .venv && source .venv/bin/activate && pip install -r requirem
 cp .env.example .env
 python -m app.cli serve          # opens http://127.0.0.1:8000
 ```
-Paste a link, pick formats, press **Make clips**. Clips appear below with Approve / Reject / Download. The first run downloads the Whisper caption model (~500 MB).
+Paste a link, pick formats, caption style and length (up to 5 min; Shorts count up to 3 min), press **Make clips**. Each clip gets the viral-tool treatment: word-by-word highlighted captions, a hook title for the first 3 seconds, a progress bar, a virality score and a cover image. With a local LLM the hook, title, caption, hashtags and highlighted keywords are written from what is said. Clips appear below with Approve / Reject / Download. The first run downloads the Whisper caption model (~500 MB).
 
 ## Connect Telegram
 1. In Telegram, message **@BotFather**, send `/newbot`, and copy the token.
@@ -26,6 +26,9 @@ brew install ollama && brew services start ollama
 ollama pull llama3.1:8b
 ```
 Then open **AI settings** in the UI, choose Ollama and the model, and press Save, then Test LLM. LM Studio, llama.cpp and other OpenAI-compatible servers work too (URL like `http://localhost:1234/v1`). The Whisper model can be changed there as well.
+
+## Publishing
+Open **Publishing** in the UI. YouTube: upload your Google OAuth client JSON (Desktop app) and press Connect YouTube. Instagram: a Professional account linked to a Facebook Page plus a Meta app token. Until one is connected, Approve saves the clip for you to download.
 
 ## Command line
 ```bash

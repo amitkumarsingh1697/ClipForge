@@ -54,7 +54,14 @@ h2 { font-size: 15px; margin: 0 0 12px; }
 .meta { color: var(--muted); font-size: 12px; }
 .status { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; padding: 2px 7px; border-radius: 5px; background: var(--chip); color: var(--muted); }
 .status.awaiting_approval { color: var(--warn); }
-.status.published, .status.done { color: var(--ok); }
+.status.published, .status.done, .status.approved { color: var(--ok); }
+.vir { font-weight: 700; font-size: 12px; padding: 2px 7px; border-radius: 5px; background: var(--chip); }
+.vir.hi { color: var(--ok); } .vir.mid { color: var(--warn); } .vir.lo { color: var(--muted); }
+.hookline { font-size: 12px; color: var(--muted); }
+.warn-text { color: var(--warn); font-size: 12px; }
+ol.steps { margin: 6px 0 12px; padding-left: 20px; color: var(--muted); font-size: 13px; }
+ol.steps li { margin: 3px 0; }
+.ok-text { color: var(--ok); font-weight: 600; }
 .status.failed, .status.rejected { color: var(--bad); }
 .clips { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; margin-top: 12px; align-items: start; }
 .clip { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--bg); display: flex; flex-direction: column; }
@@ -108,15 +115,59 @@ select { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-
     </div>
     <div class="row">
       <div><label class="field">Clips per video</label><input type="number" id="clips" min="1" max="10"></div>
-      <div><label class="field">Clip length: <span id="lenOut"></span>s</label><input type="range" id="len" style="width:100%"></div>
+      <div><label class="field">Clip length: <span id="lenOut"></span></label><input type="range" id="len" style="width:100%"><div class="warn-text hidden" id="lenWarn">Over 3 min: YouTube posts it as a normal video, not a Short.</div></div>
       <div><label class="field">Title (optional)</label><input type="text" id="title" placeholder="From the video"></div>
-      <div><label class="field">Captions</label><label class="switch"><input type="checkbox" id="captions"> Burn in captions</label></div>
+      <div><label class="field">Caption style</label>
+        <select id="capStyle">
+          <option value="pop">Pop: word-by-word highlight (viral look)</option>
+          <option value="classic">Classic: bold white words</option>
+          <option value="minimal">Minimal: text on a dark box</option>
+          <option value="none">No captions</option>
+        </select></div>
+    </div>
+    <div class="row">
+      <div><label class="switch"><input type="checkbox" id="hook"> Hook title for the first 3 seconds</label></div>
+      <div><label class="switch"><input type="checkbox" id="pbar"> Progress bar</label></div>
     </div>
     <div class="actions">
       <button class="primary" id="go">Make clips</button>
       <span class="msg" id="formMsg"></span>
     </div>
   </section>
+
+  <details class="panel" id="pubPanel">
+    <summary>Publishing <span class="meta" id="pubSummary"></span></summary>
+    <p class="msg">Until an account is connected, Approve just saves the clip so you can download it and post it yourself.</p>
+    <h2 style="margin-top:14px">YouTube</h2>
+    <div id="ytState" class="msg"></div>
+    <ol class="steps">
+      <li>Open <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">Google Cloud Console</a> and create a project (free).</li>
+      <li>Enable <a href="https://console.cloud.google.com/apis/library/youtube.googleapis.com" target="_blank" rel="noopener">YouTube Data API v3</a>.</li>
+      <li>Under <a href="https://console.cloud.google.com/auth/overview" target="_blank" rel="noopener">Google Auth Platform</a>: set it up as External, add yourself as a user, then <b>Publish app</b> (In production) so the login doesn't expire after 7 days.</li>
+      <li>Create an OAuth client of type <b>Desktop app</b>, download its JSON and upload it here.</li>
+      <li>Press Connect YouTube and allow access (Google may warn the app is unverified: Advanced → continue).</li>
+    </ol>
+    <div class="actions" style="margin-top:0">
+      <input type="file" id="ytFile" accept="application/json,.json">
+      <button class="btn" id="ytUpload" type="button">Upload JSON</button>
+      <a class="btn ok" id="ytConnect" href="#">Connect YouTube</a>
+    </div>
+    <p class="msg">New Google projects can only post <b>private</b> videos until Google audits them; you can switch them to public in YouTube Studio.</p>
+    <h2 style="margin-top:18px">Instagram</h2>
+    <div id="igState" class="msg"></div>
+    <ol class="steps">
+      <li>Switch your Instagram to a <b>Professional</b> (Business or Creator) account and link it to a Facebook Page.</li>
+      <li>Create an app at <a href="https://developers.facebook.com/apps" target="_blank" rel="noopener">Meta for Developers</a> and add the Instagram product.</li>
+      <li>Generate a long-lived access token with <code>instagram_content_publish</code> permission, and copy your Instagram account ID.</li>
+    </ol>
+    <div class="row" style="margin-top:0">
+      <div><label class="field">Instagram account ID</label><input type="text" id="igUser"></div>
+      <div><label class="field">Access token</label><input type="password" id="igToken"></div>
+      <div><label class="field">App ID (optional, for auto-refresh)</label><input type="text" id="igAppId"></div>
+      <div><label class="field">App secret (optional)</label><input type="password" id="igAppSecret"></div>
+    </div>
+    <div class="actions"><button class="btn" id="igSave" type="button">Save &amp; check</button><span class="msg" id="pubMsg"></span></div>
+  </details>
 
   <details class="panel" id="aiPanel">
     <summary>AI settings <span class="meta" id="aiSummary"></span></summary>
@@ -205,7 +256,9 @@ $("go").onclick = async () => {
   const msg = $("formMsg");
   msg.className = "msg";
   if (!formats.length) { msg.textContent = "Pick at least one format."; msg.className = "msg err"; return; }
-  const common = { formats, clips: +$("clips").value, clip_seconds: +$("len").value, captions: $("captions").checked,
+  const style = $("capStyle").value;
+  const common = { formats, clips: +$("clips").value, clip_seconds: +$("len").value, captions: style !== "none",
+                   caption_style: style, hook: $("hook").checked, progress_bar: $("pbar").checked,
                    title: $("title").value.trim() || null };
   $("go").disabled = true;
   try {
@@ -218,6 +271,7 @@ $("go").onclick = async () => {
       fd.append("formats", formats.join(","));
       fd.append("clips", common.clips); fd.append("clip_seconds", common.clip_seconds);
       fd.append("captions", common.captions);
+      fd.append("caption_style", common.caption_style); fd.append("hook", common.hook); fd.append("progress_bar", common.progress_bar);
       if (common.title) fd.append("title", common.title);
       msg.textContent = "Uploading…";
       res = await api("/upload", { method: "POST", body: fd });
@@ -237,24 +291,33 @@ $("go").onclick = async () => {
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const fmtTime = (t) => new Date(t * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 const LABEL = { awaiting_approval: "ready for review", downloading: "downloading", analyzing: "finding highlights",
-  rendering: "rendering", recording: "recording live", publishing: "publishing" };
+  rendering: "rendering", recording: "recording live", publishing: "publishing", approved: "approved (saved)" };
+const coverUrl = (id) => `/media/${id}.jpg${token ? "?token=" + encodeURIComponent(token) : ""}`;
+const mmss = (s) => s >= 60 ? `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")} min` : `${Math.round(s)} s`;
 
 function clipHtml(c) {
   const fmt = (c.meta && c.meta.format) || "vertical";
-  const hasVideo = ["awaiting_approval", "publishing", "published"].includes(c.status) || (c.status === "failed" && c.output_path);
+  const hasVideo = ["awaiting_approval", "publishing", "published", "approved"].includes(c.status) || (c.status === "failed" && c.output_path);
+  const m = c.meta || {};
   const dur = c.end_s != null ? `${Math.round(c.start_s)}–${Math.round(c.end_s)}s` : "";
   let btns = "";
   if (c.status === "awaiting_approval") btns += `<button class="btn ok" data-act="approve" data-id="${c.id}">Approve &amp; publish</button><button class="btn bad" data-act="reject" data-id="${c.id}">Reject</button>`;
+  if (c.status === "approved") btns += `<button class="btn ok" data-act="approve" data-id="${c.id}">Publish now</button>`;
   if (c.status === "failed") btns += `<button class="btn" data-act="retry" data-id="${c.id}">Retry</button>`;
-  if (hasVideo) btns += `<a class="btn" href="${mediaUrl(c.id)}" download>Download</a>`;
+  if (hasVideo) btns += `<a class="btn" href="${mediaUrl(c.id)}" download>Video</a>`;
+  if (m.cover_path) btns += `<a class="btn" href="${coverUrl(c.id)}" download>Cover</a>`;
+  if (["awaiting_approval", "approved", "failed", "rejected"].includes(c.status)) btns += `<button class="btn" data-act="rerender" data-id="${c.id}">Re-render</button>`;
+  const vir = m.virality != null ? `<span class="vir ${m.virality >= 70 ? "hi" : m.virality >= 45 ? "mid" : "lo"}" title="Virality score">🔥 ${m.virality}</span> ` : "";
   const links = [];
   if (c.meta && c.meta.youtube_id) links.push(`<a href="https://youtu.be/${esc(c.meta.youtube_id)}" target="_blank" rel="noopener">YouTube</a>`);
   if (c.meta && c.meta.instagram_id) links.push("Instagram ✓");
-  return `<div class="frame ${fmt}">${hasVideo ? `<video src="${mediaUrl(c.id)}" controls preload="metadata" playsinline></video>` : `<span class="ph">${esc(LABEL[c.status] || c.status)}…</span>`}</div>
+  return `<div class="frame ${fmt}">${hasVideo ? `<video src="${mediaUrl(c.id)}" ${m.cover_path ? `poster="${coverUrl(c.id)}"` : ""} controls preload="none" playsinline></video>` : `<span class="ph">${esc(LABEL[c.status] || c.status)}…</span>`}</div>
     <div class="info">
       <div class="clip-title">${esc(c.title || "")}</div>
-      ${c.meta && c.meta.llm && c.meta.llm.hashtags ? `<div class="tags">${esc(c.meta.llm.hashtags.join(" "))}</div>` : ""}
-      <div><span class="status ${c.status}">${esc(LABEL[c.status] || c.status)}</span> <span class="meta">${esc(fmt)} · ${dur}</span></div>
+      ${m.hook_text ? `<div class="hookline">Hook: “${esc(m.hook_text)}”</div>` : ""}
+      ${m.llm && m.llm.hashtags ? `<div class="tags">${esc(m.llm.hashtags.join(" "))}</div>` : ""}
+      ${m.caption_error ? `<div class="warn-text">Captions: ${esc(m.caption_error.slice(0, 120))}</div>` : ""}
+      <div>${vir}<span class="status ${c.status}">${esc(LABEL[c.status] || c.status)}</span> <span class="meta">${esc(fmt)} · ${dur}${m.caption_words ? ` · ${m.caption_words} words` : ""}</span></div>
       ${links.length ? `<div class="meta">${links.join(" · ")}</div>` : ""}
       ${c.status === "failed" && c.error ? `<div class="err-text">${esc(c.error.split("\n")[0])}</div>` : ""}
       <div class="btns">${btns}</div>
@@ -377,15 +440,46 @@ async function initPills() {
     .map(([n, on]) => `<span class="pill ${on ? "on" : ""}">${esc(n)} ${on ? "✓" : "not set"}</span>`).join("");
 }
 
+async function initPublishing() {
+  const p = await api("/api/publishing");
+  $("ytState").innerHTML = p.youtube ? '<span class="ok-text">✓ YouTube connected</span>' :
+    (p.youtube_client_uploaded ? "Client JSON uploaded. Press Connect YouTube." : "Not connected.");
+  $("igState").innerHTML = p.instagram ? `<span class="ok-text">✓ Instagram connected</span> (account ${esc(p.instagram_user_id)})` : "Not connected.";
+  $("pubSummary").textContent = [p.youtube && "YouTube", p.instagram && "Instagram"].filter(Boolean).join(" + ") || "Not connected";
+  $("ytConnect").href = "/auth/youtube" + (token ? "?token=" + encodeURIComponent(token) : "");
+  $("ytConnect").target = "_blank";
+}
+$("ytUpload").onclick = async () => {
+  const f = $("ytFile").files[0], msg = $("pubMsg");
+  if (!f) { msg.className = "msg err"; msg.textContent = "Choose the JSON file first."; return; }
+  const fd = new FormData(); fd.append("file", f);
+  try { await api("/api/publishing/youtube/client", { method: "POST", body: fd }); msg.className = "msg"; msg.textContent = "Saved. Now press Connect YouTube."; initPublishing(); }
+  catch (e) { msg.className = "msg err"; msg.textContent = e.message; }
+};
+$("igSave").onclick = async () => {
+  const msg = $("pubMsg");
+  const body = { user_id: $("igUser").value.trim(), access_token: $("igToken").value.trim(),
+                 app_id: $("igAppId").value.trim(), app_secret: $("igAppSecret").value.trim() };
+  if (!body.user_id || !body.access_token) { msg.className = "msg err"; msg.textContent = "Account ID and token are required."; return; }
+  try {
+    const r = await api("/api/publishing/instagram", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    msg.className = "msg"; msg.textContent = `Connected @${r.username} (${r.account_type}).`;
+    $("igToken").value = ""; $("igAppSecret").value = ""; initPublishing(); initPills();
+  } catch (e) { msg.className = "msg err"; msg.textContent = e.message; }
+};
+window.addEventListener("focus", () => { if (cfg) { initPublishing(); initPills(); } });
+
 let cfg;
 async function init() {
   try { cfg = await api("/api/config"); } catch (e) { return; }
   renderFormats(cfg.default_formats);
   $("clips").value = cfg.clips;
   Object.assign($("len"), { min: cfg.clip_min_s, max: cfg.clip_max_s, step: 5, value: cfg.clip_seconds });
-  $("lenOut").textContent = cfg.clip_seconds;
-  $("len").oninput = () => $("lenOut").textContent = $("len").value;
-  $("captions").checked = cfg.captions;
+  const lenUpd = () => { $("lenOut").textContent = mmss(+$("len").value); $("lenWarn").classList.toggle("hidden", +$("len").value <= 180); };
+  $("len").oninput = lenUpd; lenUpd();
+  $("capStyle").value = cfg.captions ? cfg.caption_style : "none";
+  $("hook").checked = cfg.hook; $("pbar").checked = cfg.progress_bar;
+  initPublishing();
   initPills();
   initAi();
   refresh();

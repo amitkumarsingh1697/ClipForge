@@ -50,16 +50,15 @@ def test_url_ingestion_end_to_end(http_server, no_whisper, monkeypatch):
 
 def test_approve_is_idempotent_and_reject_deletes(sample_video, no_whisper, monkeypatch):
     calls = []
-    monkeypatch.setattr(pipeline, "publish_clip", lambda jid: calls.append(jid))
+    from app.services import social_publisher as sp
+    monkeypatch.setattr(sp, "publishers_configured", lambda: {"youtube": True, "instagram": False})
     import app.celery_worker as cw
     monkeypatch.setattr(cw, "publish_clip_task", type("T", (), {"delay": staticmethod(lambda j: calls.append(j))}))
     job = pipeline.submit("upload", "g.mp4", raw_path=sample_video)
-    clips = get_store().children(job)
-    cid = clips[0]["id"]
+    cid = get_store().children(job)[0]["id"]
     assert pipeline.approve(cid).startswith("Approved")
     assert pipeline.approve(cid) == "Already publishing"   # double tap
     assert calls == [cid]
-    # reject on another fresh clip
     job2 = pipeline.submit("upload", "g.mp4", raw_path=sample_video)
     c2 = get_store().children(job2)[0]
     assert pipeline.reject(c2["id"]) == "Rejected and deleted"
@@ -67,12 +66,12 @@ def test_approve_is_idempotent_and_reject_deletes(sample_video, no_whisper, monk
     assert not os.path.exists(c2["output_path"])
 
 
-def test_publish_without_credentials_fails_clearly(sample_video, no_whisper):
+def test_approve_without_publishers_saves_clip(sample_video, no_whisper):
     job = pipeline.submit("upload", "g.mp4", raw_path=sample_video)
     cid = get_store().children(job)[0]["id"]
-    pipeline.approve(cid)  # eager: runs publish inline
+    msg = pipeline.approve(cid)
     c = get_store().get(cid)
-    assert c["status"] == "failed" and "no publisher configured" in c["error"]
+    assert c["status"] == "approved" and "Connect YouTube or Instagram" in msg
 
 
 def test_api_requires_token_and_accepts_upload(sample_video, no_whisper):

@@ -43,7 +43,7 @@ def test_smart_crop_follows_action(sample_video):
 def test_render_landscape_with_captions(sample_video, tmp_path):
     words = [transcriber.Word(0.5, 0.9, "no"), transcriber.Word(0.9, 1.3, "way"),
              transcriber.Word(1.3, 1.8, "bro"), transcriber.Word(2.0, 2.6, "{weird}")]
-    ass = transcriber.write_ass(words, tmp_path / "c.ass")
+    ass = transcriber.write_ass(words, tmp_path / "c.ass", style="classic")
     assert "NO WAY BRO" in ass.read_text() and "{weird}" not in ass.read_text()
     out = video_editor.render_vertical(sample_video, tmp_path / "out dir with space.mp4", 45, 65, ass_file=ass)
     i = probe(out)
@@ -109,3 +109,38 @@ def test_render_without_libass_skips_captions(sample_video, tmp_path, monkeypatc
 
 def test_has_filter_detects_real_filters():
     assert video_editor.has_filter("scale") and not video_editor.has_filter("no_such_filter_xyz")
+
+
+def test_pop_captions_and_hook_ass(tmp_path):
+    words = [transcriber.Word(0.0, 0.4, "no"), transcriber.Word(0.4, 0.8, "way"), transcriber.Word(0.8, 1.2, "bro"),
+             transcriber.Word(1.3, 1.8, "insane")]
+    a = transcriber.write_ass(words, tmp_path / "p.ass", style="pop", hook="He did NOT expect this ending at all",
+                              keywords={"insane"})
+    t = a.read_text()
+    assert t.count("Dialogue: 0,") == 4                  # one event per spoken word
+    assert "\\c&H0000E6FF&" in t                         # highlight colour (FFE600 as BGR)
+    assert "Style: Hook" in t and "HE DID" not in t and "He did NOT" in t
+    assert "\\N" in t                                    # hook wrapped
+    assert transcriber.write_ass([], tmp_path / "n.ass", style="none") is None
+    assert transcriber.write_ass(words, tmp_path / "n2.ass", style="none", hook="Hi") is not None
+
+
+def test_render_with_progress_bar_hook_and_cover(sample_video, tmp_path):
+    words = [transcriber.Word(0.2, 0.7, "go"), transcriber.Word(0.7, 1.2, "now")]
+    ass = transcriber.write_ass(words, tmp_path / "c.ass", hook="Wait for it")
+    out = video_editor.render_clip(sample_video, tmp_path / "pb.mp4", 50, 58, ass_file=ass, progress_bar=True)
+    i = probe(out)
+    assert (i.width, i.height) == (1080, 1920) and abs(i.duration - 8) < 0.5 and i.has_audio
+    t = video_editor.pick_cover_time(sample_video, 50, 58)
+    assert 50 <= t <= 58
+    cov = video_editor.make_cover(sample_video, tmp_path / "c.jpg", t, 1080, 1920, ass_file=ass)
+    assert cov.stat().st_size > 1000
+    prev = video_editor.make_preview(out, tmp_path / "prev.mp4", max_mb=1)
+    assert prev.stat().st_size < 1.3 * 1024 * 1024
+
+
+def test_long_target_keeps_video_whole_only_when_short(sample_video, tmp_path):
+    hl = highlight_ai.find_highlights(sample_video, tmp_path, target_s=120, min_s=15, max_s=300)
+    assert hl[0].start == 0 and hl[0].end > 89      # 90 s video, 2 min target -> whole video
+    hl = highlight_ai.find_highlights(sample_video, tmp_path, target_s=40, min_s=15, max_s=300)
+    assert 30 <= hl[0].duration <= 50
