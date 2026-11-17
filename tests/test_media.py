@@ -98,3 +98,14 @@ def test_vertical_source_to_landscape_and_portrait(short_portrait, tmp_path):
 def test_unknown_format_rejected():
     with pytest.raises(ValueError):
         video_editor.format_size("diagonal")
+
+
+def test_render_without_libass_skips_captions(sample_video, tmp_path, monkeypatch):
+    monkeypatch.setattr(video_editor, "can_burn_captions", lambda: False)
+    ass = transcriber.write_ass([transcriber.Word(0.2, 0.8, "hi")], tmp_path / "c.ass")
+    out = video_editor.render_clip(sample_video, tmp_path / "noass.mp4", 50, 55, ass_file=ass)
+    assert probe(out).height == 1920
+
+
+def test_has_filter_detects_real_filters():
+    assert video_editor.has_filter("scale") and not video_editor.has_filter("no_such_filter_xyz")

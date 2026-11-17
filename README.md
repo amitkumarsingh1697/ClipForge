@@ -4,7 +4,8 @@ Turns any video (a link, an uploaded file, or a live stream) into short captione
 
 ## Run it on a Mac
 ```bash
-brew install ffmpeg python@3.12
+brew tap homebrew-ffmpeg/ffmpeg && brew install homebrew-ffmpeg/ffmpeg/ffmpeg python@3.12
+# (Homebrew's default ffmpeg has no libass, so captions would be skipped. Check: ffmpeg -filters | grep " ass ")
 git clone https://github.com/amitkumarsingh1697/ClippingTool.git && cd ClippingTool
 python3.12 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
 cp .env.example .env

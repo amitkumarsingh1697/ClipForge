@@ -16,6 +16,7 @@ FIXES vs the spec's `-vf "crop=ih*9/16:ih"`:
 from __future__ import annotations
 
 import logging
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
@@ -38,6 +39,20 @@ def format_size(name: str) -> tuple[int, int]:
     if name not in FORMATS:
         raise ValueError(f"unknown format {name!r}; choose from {', '.join(FORMATS)}")
     return FORMATS[name]
+
+
+@lru_cache(maxsize=None)
+def has_filter(name: str) -> bool:
+    """Some ffmpeg builds (e.g. Homebrew's default ffmpeg 8+) ship without libass."""
+    try:
+        out = run(["ffmpeg", "-hide_banner", "-filters"])
+    except Exception:
+        return False
+    return any(line.split()[1:2] == [name] for line in out.splitlines() if line.strip())
+
+
+def can_burn_captions() -> bool:
+    return has_filter("ass")
 
 
 def even(x: float) -> int:
@@ -131,6 +146,9 @@ def render_clip(src: Path, dst: Path, start: float, end: float, ass_file: Path |
         crop_x = find_crop_x(src, start, duration, info, target_aspect=target) if info.aspect > target * 1.01 else 0
     vf = frame_filter(info, crop_x, out_w, out_h)
     cwd = None
+    if ass_file is not None and not can_burn_captions():
+        log.warning("ffmpeg has no 'ass' filter (built without libass); rendering %s without captions", dst.name)
+        ass_file = None
     if ass_file is not None:
         # Run ffmpeg *in* the subtitle's folder and pass a bare file name: this
         # sidesteps the filtergraph escaping of ':' '\' and spaces in paths,

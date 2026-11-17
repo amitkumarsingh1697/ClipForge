@@ -173,7 +173,12 @@ def render_clip(job_id: str) -> Path | None:
         out_w, out_h = video_editor.format_size(fmt)
         ass = None
         n_words = 0
-        if job["meta"].get("captions", s.captions_enabled):
+        want_captions = job["meta"].get("captions", s.captions_enabled)
+        if want_captions and not video_editor.can_burn_captions():
+            want_captions = False
+            store.update(job_id, meta={"caption_error": "ffmpeg was built without libass; install an ffmpeg "
+                                                        "with libass to get captions"})
+        if want_captions:
             try:
                 words = transcriber.transcribe_words(raw, s.temp_dir, start, end - start, model=s.whisper_model,
                                                      device=s.whisper_device, compute_type=s.whisper_compute_type,
