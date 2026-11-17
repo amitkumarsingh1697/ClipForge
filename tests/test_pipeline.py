@@ -226,3 +226,45 @@ def test_thread_mode_runs_in_background(sample_video, no_whisper, monkeypatch):
             break
         time.sleep(1)
     assert cl[0]["status"] == "awaiting_approval", cl[0]["error"]
+
+
+def test_network_error_retries_ipv4_then_explains(monkeypatch, tmp_path):
+    import yt_dlp
+    from app.services import ingest
+    calls = []
+
+    class FakeYDL:
+        def __init__(self, opts):
+            calls.append(opts.get("source_address"))
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+        def extract_info(self, url, download=False):
+            raise yt_dlp.utils.DownloadError("Unable to download API page: [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred")
+
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", FakeYDL)
+    with pytest.raises(ConnectionError, match="connection to the site was cut off"):
+        ingest.download_url("https://www.youtube.com/watch?v=x", tmp_path)
+    assert calls == [None, "0.0.0.0"]
+
+
+def test_non_network_download_error_is_not_retried(monkeypatch, tmp_path):
+    import yt_dlp
+    from app.services import ingest
+    calls = []
+
+    class FakeYDL:
+        def __init__(self, opts):
+            calls.append(1)
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+        def extract_info(self, url, download=False):
+            raise yt_dlp.utils.DownloadError("Video unavailable. This video is private")
+
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", FakeYDL)
+    with pytest.raises(yt_dlp.utils.DownloadError):
+        ingest.download_url("https://www.youtube.com/watch?v=x", tmp_path)
+    assert calls == [1]

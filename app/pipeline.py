@@ -143,7 +143,7 @@ def ingest_source(job_id: str) -> list[str]:
     except Exception as e:
         log.exception("ingest failed")
         store.fail(job_id, f"{e}\n{traceback.format_exc()}")
-        _notify(f"❌ Job {job_id} failed while ingesting: {e}")
+        _notify(f"❌ Job {job_id} failed while ingesting: {str(e)[:400]}\nRetry it from the web UI.")
         return []
 
 
