@@ -1,0 +1,47 @@
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes: [redis:/data]
+
+  api:
+    build: .
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    env_file: .env
+    environment: { REDIS_URL: "redis://redis:6379/0" }
+    ports: ["8000:8000"]          # put this behind Tailscale or an HTTPS tunnel, not the open internet
+    volumes: ["./data:/data"]
+    depends_on: [redis]
+    restart: unless-stopped
+
+  worker:                         # downloads, highlight detection, whisper, ffmpeg renders, publishing
+    build: .
+    command: celery -A app.celery_worker.celery_app worker -Q celery --concurrency=1 --loglevel=info
+    env_file: .env
+    environment: { REDIS_URL: "redis://redis:6379/0" }
+    volumes: ["./data:/data"]
+    depends_on: [redis]
+    restart: unless-stopped
+    # GPU (optional): uncomment and set WHISPER_DEVICE=cuda
+    # deploy: { resources: { reservations: { devices: [{ capabilities: [gpu] }] } } }
+
+  worker-live:                    # long-running stream recorders, kept off the render queue
+    build: .
+    command: celery -A app.celery_worker.celery_app worker -Q live --concurrency=2 --loglevel=info
+    env_file: .env
+    environment: { REDIS_URL: "redis://redis:6379/0" }
+    volumes: ["./data:/data"]
+    depends_on: [redis]
+    restart: unless-stopped
+
+  telegram-poller:                # approval buttons + "send a link to the bot" without needing HTTPS
+    build: .
+    command: python -m app.cli poll
+    env_file: .env
+    environment: { REDIS_URL: "redis://redis:6379/0" }
+    volumes: ["./data:/data"]
+    depends_on: [redis]
+    restart: unless-stopped
+
+volumes:
+  redis:
