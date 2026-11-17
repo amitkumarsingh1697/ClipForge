@@ -7,6 +7,7 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def env(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)  # never read the developer's real .env during tests
     monkeypatch.setenv("DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("CELERY_EAGER", "1")
     monkeypatch.setenv("API_TOKEN", "test-token")
@@ -47,3 +48,4 @@ def sample_video(tmp_path_factory):
 def short_portrait(tmp_path_factory):
     return make_video(tmp_path_factory.mktemp("media") / "portrait.mp4", duration=12, w=720, h=1280,
                       burst=(4, 6), box_x="300")
+
