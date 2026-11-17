@@ -10,7 +10,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    # env_ignore_empty: a blank `KEY=` line in .env means "use the default", not "parse an empty string"
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", env_ignore_empty=True)
 
     # --- storage -----------------------------------------------------------
     data_dir: Path = Path("/data")
@@ -23,15 +24,24 @@ class Settings(BaseSettings):
     # --- queue -------------------------------------------------------------
     redis_url: str = "redis://redis:6379/0"
     celery_eager: bool = False  # run tasks inline (CLI / tests), no Redis needed
+    # celery: Redis + Celery workers (server/Docker)
+    # thread: background threads in one process (`python -m app.cli serve`, e.g. on a Mac)
+    # inline: run each step synchronously (CLI one-shots, tests)
+    task_mode: str = "celery"
 
     # --- highlight detection / clip shape -----------------------------------
     clip_min_s: float = 15.0
     clip_target_s: float = 30.0
-    clip_max_s: float = 60.0
+    clip_max_s: float = 300.0  # Shorts count up to 3 min; longer clips upload as normal videos
     clips_per_source: int = 3  # long VODs yield up to N clips
-    output_width: int = 1080
+    output_formats: str = "vertical"  # comma list of vertical,portrait,square,landscape
+    output_width: int = 1080   # legacy; formats decide the size now
     output_height: int = 1920
-    max_output_mb: float = 48.0  # Telegram bot upload limit is 50 MB
+    max_output_mb: float = 48.0  # Telegram bot upload limit is 50 MB (bigger clips get a preview copy)
+    caption_style: str = "pop"     # pop | classic | minimal | none
+    hook_overlay: bool = True      # big hook title for the first seconds
+    hook_seconds: float = 3.0
+    progress_bar: bool = True
 
     # --- transcription ------------------------------------------------------
     whisper_model: str = "small"  # tiny/base/small/medium/large-v3
@@ -65,7 +75,13 @@ class Settings(BaseSettings):
     graph_api_version: str = "v21.0"
 
     # --- misc -----------------------------------------------------------------
-    default_hashtags: str = "#gaming #shorts"
+    default_hashtags: str = "#shorts"
+    host: str = "127.0.0.1"
+    port: int = 8000
+
+    @property
+    def mode(self) -> str:
+        return "inline" if self.celery_eager else self.task_mode
 
     @property
     def raw_dir(self) -> Path:

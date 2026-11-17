@@ -37,11 +37,16 @@ def safe_name(name: str) -> str:
     return stem or "video"
 
 
-def download_url(url: str, dest_dir: Path, max_height: int = 1080) -> tuple[Path, dict]:
-    """Download a video link. Returns (path, metadata)."""
-    import yt_dlp
+NETWORK_HINTS = ("ssl", "eof occurred", "timed out", "connection reset", "connection refused",
+                 "temporary failure in name resolution", "network is unreachable", "remote end closed")
 
-    dest_dir.mkdir(parents=True, exist_ok=True)
+
+def is_network_error(msg: str) -> bool:
+    m = msg.lower()
+    return any(h in m for h in NETWORK_HINTS)
+
+
+def _ydl_opts(dest_dir: Path, max_height: int, force_ipv4: bool) -> dict:
     opts = {
         "outtmpl": str(dest_dir / "%(id)s.%(ext)s"),
         "format": f"bv*[height<={max_height}]+ba/b[height<={max_height}]/bv*+ba/b",
@@ -50,17 +55,48 @@ def download_url(url: str, dest_dir: Path, max_height: int = 1080) -> tuple[Path
         "quiet": True,
         "no_warnings": True,
         "restrictfilenames": True,
-        "retries": 5,
-        "fragment_retries": 5,
+        "retries": 10,
+        "fragment_retries": 10,
+        "extractor_retries": 5,
+        "socket_timeout": 30,
         "concurrent_fragment_downloads": 4,
     }
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        # Check first: downloading a live URL would never finish.
-        info = ydl.extract_info(url, download=False)
-        if info.get("is_live"):
-            raise ValueError("URL is a live stream; submit it to /ingest/live instead")
-        info = ydl.process_ie_result(info, download=True)
-        path = Path(ydl.prepare_filename(info))
+    if force_ipv4:
+        # Broken IPv6 routes and some VPNs/ISPs cut TLS to Google mid-handshake ("SSL: UNEXPECTED_EOF").
+        opts["source_address"] = "0.0.0.0"
+    return opts
+
+
+def download_url(url: str, dest_dir: Path, max_height: int = 1080) -> tuple[Path, dict]:
+    """Download a video link. Returns (path, metadata).
+
+    Network failures (TLS dropped, timeouts) are retried once over IPv4, then
+    reported as a plain-language error instead of yt-dlp's raw traceback text.
+    """
+    import yt_dlp
+
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    last: Exception | None = None
+    for force_ipv4 in (False, True):
+        try:
+            with yt_dlp.YoutubeDL(_ydl_opts(dest_dir, max_height, force_ipv4)) as ydl:
+                # Check first: downloading a live URL would never finish.
+                info = ydl.extract_info(url, download=False)
+                if info.get("is_live"):
+                    raise ValueError("URL is a live stream; submit it to /ingest/live instead")
+                info = ydl.process_ie_result(info, download=True)
+                path = Path(ydl.prepare_filename(info))
+            break
+        except yt_dlp.utils.DownloadError as e:
+            last = e
+            if not is_network_error(str(e)):
+                raise
+            log.warning("network error downloading %s (ipv4=%s): %s", url, force_ipv4, e)
+    else:
+        raise ConnectionError(
+            "Couldn't download the video: the connection to the site was cut off "
+            "(often a VPN, proxy, firewall app or unstable network). Check your connection and retry. "
+            f"Details: {str(last)[:200]}") from last
     if not path.exists():  # merged output may have a different extension
         candidates = sorted(dest_dir.glob(f"{info['id']}.*"), key=lambda p: p.stat().st_mtime)
         candidates = [c for c in candidates if c.suffix not in (".part", ".ytdl")]

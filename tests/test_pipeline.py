@@ -50,16 +50,15 @@ def test_url_ingestion_end_to_end(http_server, no_whisper, monkeypatch):
 
 def test_approve_is_idempotent_and_reject_deletes(sample_video, no_whisper, monkeypatch):
     calls = []
-    monkeypatch.setattr(pipeline, "publish_clip", lambda jid: calls.append(jid))
+    from app.services import social_publisher as sp
+    monkeypatch.setattr(sp, "publishers_configured", lambda: {"youtube": True, "instagram": False})
     import app.celery_worker as cw
     monkeypatch.setattr(cw, "publish_clip_task", type("T", (), {"delay": staticmethod(lambda j: calls.append(j))}))
     job = pipeline.submit("upload", "g.mp4", raw_path=sample_video)
-    clips = get_store().children(job)
-    cid = clips[0]["id"]
+    cid = get_store().children(job)[0]["id"]
     assert pipeline.approve(cid).startswith("Approved")
     assert pipeline.approve(cid) == "Already publishing"   # double tap
     assert calls == [cid]
-    # reject on another fresh clip
     job2 = pipeline.submit("upload", "g.mp4", raw_path=sample_video)
     c2 = get_store().children(job2)[0]
     assert pipeline.reject(c2["id"]) == "Rejected and deleted"
@@ -67,12 +66,12 @@ def test_approve_is_idempotent_and_reject_deletes(sample_video, no_whisper, monk
     assert not os.path.exists(c2["output_path"])
 
 
-def test_publish_without_credentials_fails_clearly(sample_video, no_whisper):
+def test_approve_without_publishers_saves_clip(sample_video, no_whisper):
     job = pipeline.submit("upload", "g.mp4", raw_path=sample_video)
     cid = get_store().children(job)[0]["id"]
-    pipeline.approve(cid)  # eager: runs publish inline
+    msg = pipeline.approve(cid)
     c = get_store().get(cid)
-    assert c["status"] == "failed" and "no publisher configured" in c["error"]
+    assert c["status"] == "approved" and "Connect YouTube or Instagram" in msg
 
 
 def test_api_requires_token_and_accepts_upload(sample_video, no_whisper):
@@ -110,7 +109,7 @@ def test_telegram_callback_only_from_owner(monkeypatch):
     sent = []
     monkeypatch.setattr(tb, "send_text", lambda t, chat_id=None: sent.append(t))
     tb.handle_update({"message": {"from": {"id": 42}, "chat": {"id": 42}, "text": "clip this https://x.com/v/1 pls"}},
-                     None, None, lambda u: f"queued {u}")
+                     None, None, lambda u, t="": f"queued {u}")
     assert sent == ["queued https://x.com/v/1"]
 
 
@@ -162,3 +161,109 @@ def test_live_recording_cuts_highlight_segments(tmp_path, no_whisper, monkeypatc
     # Stream-copy segments split on keyframes, so boundaries drift a few seconds;
     # what matters is that only segments overlapping the 62-72 s burst became clips.
     assert segs and min(segs) >= 5, segs
+
+
+def test_formats_option_makes_one_clip_per_format(sample_video, no_whisper):
+    opts = pipeline.clean_options("vertical,landscape", clips=1)
+    job = pipeline.submit("upload", "g.mp4", raw_path=sample_video, options=opts)
+    clips = get_store().children(job)
+    assert sorted(c["meta"]["format"] for c in clips) == ["landscape", "vertical"]
+    from app.utils.media import probe
+    sizes = {c["meta"]["format"]: (probe(__import__("pathlib").Path(c["output_path"])).width,
+                                   probe(__import__("pathlib").Path(c["output_path"])).height) for c in clips}
+    assert sizes == {"vertical": (1080, 1920), "landscape": (1920, 1080)}
+
+
+def test_telegram_link_with_format_words(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(pipeline, "submit", lambda t, u, options=None, **k: seen.update(options=options) or "j1")
+    msg = pipeline.submit_link("https://x.com/v", "https://x.com/v square, landscape")
+    assert seen["options"]["formats"] == ["square", "landscape"] and "square, landscape" in msg
+
+
+def test_ui_and_listing_endpoints(sample_video, no_whisper, monkeypatch):
+    from app.main import app
+    client = TestClient(app)
+    assert "Clip Agent" in client.get("/").text
+    h = {"X-API-Token": "test-token"}
+    with sample_video.open("rb") as fh:
+        r = client.post("/upload", files={"file": ("a.mp4", fh, "video/mp4")},
+                        data={"formats": "square", "clips": "1"}, headers=h)
+    assert r.status_code == 200, r.text
+    jobs = client.get("/api/jobs", headers=h).json()
+    clip = jobs[0]["clips"][0]
+    assert clip["meta"]["format"] == "square"
+    v = client.get(f"/media/{clip['id']}.mp4?token=test-token")
+    assert v.status_code == 200 and v.headers["content-type"] == "video/mp4"
+    assert client.get(f"/media/{clip['id']}.mp4").status_code == 401
+    cfg = client.get("/api/config", headers=h).json()
+    assert set(cfg["formats"]) == {"vertical", "portrait", "square", "landscape"}
+    r = client.post("/ingest/url", json={"url": "https://e.com/v.mp4", "formats": ["diagonal"]}, headers=h)
+    assert r.status_code == 422
+
+
+def test_no_token_configured_allows_only_localhost(monkeypatch):
+    monkeypatch.setenv("API_TOKEN", "")
+    from app.config import get_settings
+    get_settings.cache_clear()
+    from app.main import app
+    assert TestClient(app).get("/api/config").status_code == 200          # testclient counts as local
+    assert TestClient(app, client=("203.0.113.5", 5000)).get("/api/config").status_code == 503
+
+
+def test_thread_mode_runs_in_background(sample_video, no_whisper, monkeypatch):
+    import time
+    monkeypatch.delenv("CELERY_EAGER")
+    monkeypatch.setenv("TASK_MODE", "thread")
+    from app.config import get_settings
+    get_settings.cache_clear()
+    job = pipeline.submit("upload", "g.mp4", raw_path=sample_video, options={"clips": 1})
+    deadline = time.time() + 120
+    while time.time() < deadline:
+        cl = get_store().children(job)
+        if cl and cl[0]["status"] in ("awaiting_approval", "failed"):
+            break
+        time.sleep(1)
+    assert cl[0]["status"] == "awaiting_approval", cl[0]["error"]
+
+
+def test_network_error_retries_ipv4_then_explains(monkeypatch, tmp_path):
+    import yt_dlp
+    from app.services import ingest
+    calls = []
+
+    class FakeYDL:
+        def __init__(self, opts):
+            calls.append(opts.get("source_address"))
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+        def extract_info(self, url, download=False):
+            raise yt_dlp.utils.DownloadError("Unable to download API page: [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred")
+
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", FakeYDL)
+    with pytest.raises(ConnectionError, match="connection to the site was cut off"):
+        ingest.download_url("https://www.youtube.com/watch?v=x", tmp_path)
+    assert calls == [None, "0.0.0.0"]
+
+
+def test_non_network_download_error_is_not_retried(monkeypatch, tmp_path):
+    import yt_dlp
+    from app.services import ingest
+    calls = []
+
+    class FakeYDL:
+        def __init__(self, opts):
+            calls.append(1)
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+        def extract_info(self, url, download=False):
+            raise yt_dlp.utils.DownloadError("Video unavailable. This video is private")
+
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", FakeYDL)
+    with pytest.raises(yt_dlp.utils.DownloadError):
+        ingest.download_url("https://www.youtube.com/watch?v=x", tmp_path)
+    assert calls == [1]

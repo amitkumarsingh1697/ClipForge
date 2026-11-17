@@ -87,10 +87,11 @@ def motion_curve(video: Path, n_hops: int) -> np.ndarray:
 
 def select_windows(curve: np.ndarray, duration: float, target_s: float, min_s: float,
                    max_s: float, top_n: int) -> list[Highlight]:
-    if duration <= max_s:
+    target_s = min(max(target_s, min_s), max_s)
+    if duration <= target_s * 1.25:
         # Short input: keep it whole (no 15 s floor violation, no empty window).
         return [Highlight(0.0, duration, float(curve.mean()) if curve.size else 0.0)]
-    win = max(1, int(round(min(max(target_s, min_s), max_s) / HOP_S)))
+    win = max(1, int(round(target_s / HOP_S)))
     if len(curve) <= win:
         return [Highlight(0.0, min(duration, max_s), float(curve.mean()))]
     csum = np.concatenate([[0.0], np.cumsum(curve)])
@@ -132,7 +133,7 @@ def _snap(h: Highlight, curve: np.ndarray, duration: float, min_s: float, max_s:
 def find_highlights(video: Path, work_dir: Path, target_s: float = 30, min_s: float = 15,
                     max_s: float = 60, top_n: int = 1, use_motion: bool = True) -> list[Highlight]:
     info = probe(video)
-    if info.duration <= max_s:
+    if info.duration <= min(max(target_s, min_s), max_s) * 1.25:
         return [Highlight(0.0, info.duration, 0.0)]
     if info.has_audio:
         wav = extract_audio(video, work_dir / f"{video.stem}_hl.wav")

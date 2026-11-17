@@ -57,7 +57,7 @@ def send_text(text: str, chat_id: int | None = None) -> None:
                               "disable_web_page_preview": "true"})
 
 
-def send_for_approval(job_id: str, video: Path, caption: str) -> int:
+def send_for_approval(job_id: str, video: Path, caption: str, cover: Path | None = None) -> int:
     size = video.stat().st_size
     if size > TG_MAX_UPLOAD:
         raise TelegramError(f"{video.name} is {size/1e6:.1f} MB; Telegram bots can upload 50 MB max")
@@ -65,13 +65,32 @@ def send_for_approval(job_id: str, video: Path, caption: str) -> int:
         {"text": "✅ Approve & Publish", "callback_data": f"a:{job_id}"},
         {"text": "❌ Reject & Delete", "callback_data": f"r:{job_id}"},
     ]]}
+    files = {}
     with video.open("rb") as fh:
-        msg = _api("sendVideo", timeout=300, data={
-            "chat_id": get_settings().telegram_owner_chat_id,
-            "caption": caption[:1024],
-            "supports_streaming": "true",
-            "reply_markup": json.dumps(markup),
-        }, files={"video": (video.name, fh, "video/mp4")})
+        files["video"] = (video.name, fh, "video/mp4")
+        cover_fh = None
+        if cover is not None and cover.exists() and cover.stat().st_size < 200_000:
+            cover_fh = cover.open("rb")  # Telegram thumbnails must be small JPEGs
+            files["thumbnail"] = (cover.name, cover_fh, "image/jpeg")
+        try:
+            msg = _api("sendVideo", timeout=300, data={
+                "chat_id": get_settings().telegram_owner_chat_id,
+                "caption": caption[:1024],
+                "supports_streaming": "true",
+                "reply_markup": json.dumps(markup),
+            }, files=files)
+        finally:
+            if cover_fh:
+                cover_fh.close()
+    if cover is not None and cover.exists():
+        try:
+            with cover.open("rb") as ch:
+                _api("sendPhoto", timeout=60, data={"chat_id": get_settings().telegram_owner_chat_id,
+                                                    "caption": "Cover image for the clip above",
+                                                    "reply_to_message_id": msg["message_id"]},
+                     files={"photo": (cover.name, ch, "image/jpeg")})
+        except TelegramError as e:
+            log.warning("cover send failed: %s", e)
     return int(msg["message_id"])
 
 
@@ -98,9 +117,16 @@ def handle_update(update: dict, on_approve: Callable[[str], str], on_reject: Cal
     if msg and int(msg.get("from", {}).get("id", 0)) == owner:
         from app.services.ingest import extract_url
 
-        url = extract_url(msg.get("text") or msg.get("caption") or "")
+        text = msg.get("text") or msg.get("caption") or ""
+        if text.strip().lower() in ("/start", "/help"):
+            send_text("Send me a video or live-stream link. Add format words to choose the shape, e.g.\n"
+                      "https://youtu.be/... landscape square\n"
+                      "Formats: vertical (9:16), portrait (4:5), square (1:1), landscape (16:9).",
+                      chat_id=msg["chat"]["id"])
+            return "help"
+        url = extract_url(text)
         if url:
-            result = on_link(url)
+            result = on_link(url, text)
             send_text(result, chat_id=msg["chat"]["id"])
             return result
     return None

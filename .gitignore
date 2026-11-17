@@ -1,7 +1,19 @@
 .env
-data/*
-!data/*/
-!data/*/.gitkeep
+data/**
+!data/**/
+!data/**/.gitkeep
 __pycache__/
 *.pyc
 .venv/
+
+# local models / runtimes: never commit
+.ollama/
+models/
+*.gguf
+*.safetensors
+*.bin
+data/settings.json
+
+# credentials
+secrets/
+client_secret*.json
