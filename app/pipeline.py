@@ -11,8 +11,8 @@ import traceback
 from pathlib import Path
 
 from app.config import get_settings
-from app.services import highlight_ai, ingest, llm, telegram_bot, transcriber, video_editor
-from app.utils import runtime_settings
+from app.services import highlight_ai, ingest, llm, rights, telegram_bot, transcriber, video_editor
+from app.utils import campaigns, runtime_settings
 from app.utils.job_store import get_store
 
 log = logging.getLogger(__name__)
@@ -55,11 +55,19 @@ def job_options(job: dict) -> dict:
     o.setdefault("caption_style", s.caption_style)
     o.setdefault("hook", s.hook_overlay)
     o.setdefault("progress_bar", s.progress_bar)
+    o.setdefault("jump_cuts", s.jump_cuts)
+    o.setdefault("zoom", s.zoom_punch)
+    o.setdefault("cover_intro", s.cover_intro)
+    o.setdefault("campaign", None)
     return o
 
 
+BOOL_OPTS = ("captions", "hook", "progress_bar", "jump_cuts", "zoom", "cover_intro")
+
+
 def clean_options(formats=None, clips=None, clip_seconds=None, captions=None, caption_style=None,
-                  hook=None, progress_bar=None) -> dict:
+                  hook=None, progress_bar=None, jump_cuts=None, zoom=None, cover_intro=None,
+                  campaign=None) -> dict:
     s = get_settings()
     o: dict = {}
     if formats:
@@ -81,6 +89,13 @@ def clean_options(formats=None, clips=None, clip_seconds=None, captions=None, ca
         o["hook"] = bool(hook)
     if progress_bar is not None:
         o["progress_bar"] = bool(progress_bar)
+    for k, v in (("jump_cuts", jump_cuts), ("zoom", zoom), ("cover_intro", cover_intro)):
+        if v is not None:
+            o[k] = bool(v)
+    if campaign:
+        if not campaigns.get(campaign):
+            raise ValueError(f"unknown campaign {campaign!r}")
+        o["campaign"] = campaign
     return o
 
 
@@ -134,7 +149,12 @@ def ingest_source(job_id: str) -> list[str]:
                     return []
                 raise
             title = title or meta.get("title")
-            store.update(job_id, raw_path=str(raw), title=title, meta={"source": meta})
+            risk = rights.assess(meta.pop("rights_info", None), "url")
+            store.update(job_id, raw_path=str(raw), title=title, meta={"source": meta, "rights": risk})
+            if risk["risk"] == "high":
+                _notify(f"{rights.summary_line(risk)} for '{title}'.\n" + "\n".join(f"• {r}" for r in risk["reasons"][:3]))
+        elif job["source_type"] == "upload" and not (job.get("meta") or {}).get("rights"):
+            store.update(job_id, meta={"rights": rights.assess({"title": title}, "upload")})
         if raw is None or not raw.exists():
             raise FileNotFoundError(f"raw file missing for job {job_id}")
         store.update(job_id, status="analyzing")
@@ -206,16 +226,24 @@ def _make_clips(parent_id: str, job: dict, raw: Path, hls, title: str | None, op
                                           "caption_style": opts.get("caption_style", "pop"),
                                           "hook": opts.get("hook", True),
                                           "progress_bar": opts.get("progress_bar", True),
+                                          "jump_cuts": opts.get("jump_cuts", True),
+                                          "zoom": opts.get("zoom", True),
+                                          "cover_intro": opts.get("cover_intro", True),
+                                          "campaign": opts.get("campaign"),
                                           "audio_score": round(float(h.score), 3)}))
     return ids
 
 
 # ---------------------------------------------------------------- render
 def caption_text(title: str, meta: dict | None = None) -> str:
-    md = (meta or {}).get("llm") or {}
-    tags = " ".join(md.get("hashtags") or []) or get_settings().default_hashtags
-    body = "\n\n".join(x for x in (title, md.get("caption")) if x)
-    return f"{body}\n\n{tags}".strip()
+    meta = meta or {}
+    md = meta.get("llm") or {}
+    tags = (" ".join(md.get("hashtags") or []) or runtime_settings.load().get("default_hashtags")
+            or get_settings().default_hashtags)
+    extra = campaigns.caption_extras(meta.get("campaign"))
+    caption = meta.get("caption_custom") if meta.get("caption_custom") is not None else md.get("caption")
+    body = "\n\n".join(x for x in (title, caption) if x)
+    return f"{body}\n\n{tags} {extra}".strip()
 
 
 def virality_score(audio_score: float, llm_score: float | None = None) -> int:
@@ -239,6 +267,54 @@ def fallback_hook(title: str | None) -> str | None:
     return " ".join(words[:7]) + ("…" if len(words) > 7 else "")
 
 
+def zoom_times(words: list, keywords: set[str], duration: float) -> list[tuple[float, float]]:
+    """Punch-ins on keywords (LLM), else on emphasised words, else a gentle rhythm every ~5 s."""
+    kws = {k.lower().strip(".,!?") for k in keywords}
+    hits = [w for w in words if w.text.lower().strip(".,!?") in kws] or \
+           [w for w in words if w.text.endswith("!") or (w.text.isupper() and len(w.text) > 2)]
+    spans = [(max(0.0, w.start - 0.05), min(duration, w.end + 0.6)) for w in hits]
+    if not spans and duration > 8:
+        spans = [(t, min(duration, t + 1.2)) for t in [5.0 * k for k in range(1, int(duration // 5))]]
+    merged: list[list[float]] = []
+    for a, b in sorted(spans):
+        if merged and a - merged[-1][1] < 1.5:
+            merged[-1][1] = max(merged[-1][1], b)
+        elif not merged or a - merged[-1][1] >= 1.5:
+            merged.append([a, b])
+    return [(a, b) for a, b in merged][:12]
+
+
+def _remap_words(words: list, keep) -> list:
+    out = []
+    for w in words:
+        a, b = video_editor.remap_time(w.start, keep), video_editor.remap_time(w.end, keep)
+        if a is None:
+            continue
+        out.append(transcriber.Word(a, b if b is not None else a + 0.3, w.text))
+    return out
+
+
+def make_cover(job_id: str, raw: Path, start: float, end: float, out_w: int, out_h: int, crop_x,
+               text: str | None) -> tuple[Path, float]:
+    """Cover image: the user's own picture, or their chosen moment, or the sharpest frame; with the hook on it."""
+    s, store = get_settings(), get_store()
+    meta = store.get(job_id)["meta"]
+    dst = s.processed_dir / f"{job_id}.jpg"
+    cover_ass = transcriber.write_ass([], s.temp_dir / f"{job_id}_cover.ass", out_w, out_h, font=s.caption_font,
+                                      style="none", hook=text, hook_seconds=5, animate_hook=False, hook_scale=1.6)
+    try:
+        custom = meta.get("cover_image")
+        if custom and Path(custom).exists():
+            return video_editor.cover_from_image(Path(custom), dst, out_w, out_h, cover_ass), start
+        t = meta.get("cover_time")
+        t = start + float(t) if t is not None and 0 <= float(t) <= end - start else \
+            video_editor.pick_cover_time(raw, start, end)
+        return video_editor.make_cover(raw, dst, t, out_w, out_h, crop_x, cover_ass), t
+    finally:
+        if cover_ass:
+            cover_ass.unlink(missing_ok=True)
+
+
 def render_clip(job_id: str) -> Path | None:
     s, store = get_settings(), get_store()
     if not store.transition(job_id, ("queued", "failed"), "rendering"):
@@ -258,8 +334,9 @@ def render_clip(job_id: str) -> Path | None:
                                                         "(brew install ffmpeg-full) to get captions"})
         rs = runtime_settings.load()
         use_llm_meta = llm.enabled(rs) and rs["llm_titles"]
+        want_cuts = meta.get("jump_cuts", s.jump_cuts)
         words: list = []
-        if style != "none" or use_llm_meta:
+        if style != "none" or use_llm_meta or want_cuts:
             try:
                 words = _transcript(raw, start, end, rs)
             except Exception as e:  # captions are optional; never lose the clip over them
@@ -267,63 +344,60 @@ def render_clip(job_id: str) -> Path | None:
                 store.update(job_id, meta={"caption_error": f"transcription failed: {str(e)[:250]}"})
         parent = store.get(job["parent_id"]) if job.get("parent_id") else None
         source_title = (parent or {}).get("title") or job["title"] or ""
-        md: dict = {}
-        if use_llm_meta:
+        md: dict = dict(meta.get("llm") or {})
+        if use_llm_meta and (not md or meta.get("llm_refresh")):
             try:
                 used = [x for c in (store.children(job["parent_id"]) if job.get("parent_id") else [])
                         if c["id"] != job_id for x in (c["meta"].get("hook_text"), c["title"])]
                 md = llm.clip_metadata(" ".join(w.text for w in words), source_title, fmt, rs, avoid=used[:12])
-                if md.get("title"):
-                    store.update(job_id, title=md["title"])
-                    job["title"] = md["title"]
-                store.update(job_id, meta={"llm": md})
+                store.update(job_id, meta={"llm": md, "llm_refresh": False})
             except Exception as e:
                 log.warning("LLM metadata skipped for %s: %s", job_id, e)
                 store.update(job_id, meta={"llm_error": str(e)[:300]})
-        hook = (md.get("hook") or fallback_hook(source_title)) if meta.get("hook", s.hook_overlay) else None
-        ass = transcriber.write_ass(words, s.temp_dir / f"{job_id}.ass", out_w, out_h, s.caption_words_per_line,
+        if md.get("title") and not meta.get("title_locked"):
+            store.update(job_id, title=md["title"])
+            job["title"] = md["title"]
+        hook = None
+        if meta.get("hook", s.hook_overlay):
+            hook = meta.get("hook_custom") or md.get("hook") or fallback_hook(source_title)
+        duration = end - start
+        keep = video_editor.jump_cut_spans(words, duration) if want_cuts and words else None
+        out_words = _remap_words(words, keep) if keep else words
+        out_dur = sum(b - a for a, b in keep) if keep else duration
+        zooms = zoom_times(out_words, set(md.get("keywords") or []), out_dur) if meta.get("zoom", s.zoom_punch) else None
+        ass = transcriber.write_ass(out_words, s.temp_dir / f"{job_id}.ass", out_w, out_h, s.caption_words_per_line,
                                     s.caption_font, style=style, hook=hook, hook_seconds=s.hook_seconds,
-                                    keywords=set(md.get("keywords") or []))
+                                    keywords=set(md.get("keywords") or []),
+                                    watermark=(rs.get("watermark") or "").strip() or None)
         out = s.processed_dir / f"{job_id}.mp4"
         info = video_editor.probe(raw)
         crop_x = None
         if info.aspect > (out_w / out_h) * 1.01:
-            crop_x = video_editor.find_crop_x(raw, start, end - start, info, target_aspect=out_w / out_h)
-        video_editor.render_clip(raw, out, start, end, ass_file=ass, out_w=out_w, out_h=out_h, crop_x=crop_x,
-                                 progress_bar=meta.get("progress_bar", s.progress_bar))
-        if ass:
-            ass.unlink(missing_ok=True)
-        # Cover image: sharpest frame + hook title (used as Instagram cover, shown in UI/Telegram)
-        cover = None
+            crop_x = video_editor.find_crop_x(raw, start, duration, info, target_aspect=out_w / out_h)
+        # Cover first: it is also the clip's opening frames, so every platform shows it as the thumbnail.
+        cover, cover_t = None, start
         try:
-            t = video_editor.pick_cover_time(raw, start, end)
-            cover_ass = transcriber.write_ass([], s.temp_dir / f"{job_id}_cover.ass", out_w, out_h,
-                                              font=s.caption_font, style="none", hook=hook, hook_seconds=5,
-                                              animate_hook=False, hook_scale=1.6)
-            cover = video_editor.make_cover(raw, s.processed_dir / f"{job_id}.jpg", t, out_w, out_h, crop_x, cover_ass)
-            if cover_ass:
-                cover_ass.unlink(missing_ok=True)
-            store.update(job_id, meta={"cover_path": str(cover), "cover_offset_ms": int((t - start) * 1000)})
+            cover, cover_t = make_cover(job_id, raw, start, end, out_w, out_h, crop_x,
+                                        meta.get("cover_text") or hook)
         except Exception as e:
             log.warning("cover failed for %s: %s", job_id, e)
+        intro = cover if (cover and meta.get("cover_intro", s.cover_intro)) else None
+        video_editor.render_clip(raw, out, start, end, ass_file=ass, out_w=out_w, out_h=out_h, crop_x=crop_x,
+                                 progress_bar=meta.get("progress_bar", s.progress_bar), keep=keep,
+                                 zoom_times=zooms, intro_image=intro)
+        if ass:
+            ass.unlink(missing_ok=True)
+        if cover:
+            store.update(job_id, meta={"cover_path": str(cover),
+                                       "cover_offset_ms": 0 if intro else int((cover_t - start) * 1000)})
         score = virality_score(meta.get("audio_score", job.get("score") or 0), md.get("virality"))
         store.update(job_id, output_path=str(out), score=score,
                      meta={"caption_words": len(words) if style != "none" else 0, "hook_text": hook,
-                           "virality": score, "duration": round(end - start, 1)})
+                           "virality": score, "duration": round(out_dur, 1),
+                           "cuts": max(0, len(keep) - 1) if keep else 0,
+                           "seconds_removed": round(duration - out_dur, 1), "zooms": len(zooms or [])})
         store.transition(job_id, "rendering", "awaiting_approval")
-        if s.telegram_bot_token and s.telegram_owner_chat_id:
-            send = out
-            if out.stat().st_size > s.max_output_mb * 1024 * 1024:
-                send = video_editor.make_preview(out, s.temp_dir / f"{job_id}_preview.mp4", s.max_output_mb - 3)
-            fresh = store.get(job_id)
-            mid = telegram_bot.send_for_approval(
-                job_id, send, f"🔥 Virality {score}/100\n{caption_text(fresh['title'] or '', fresh['meta'])}\n\n"
-                              f"{end-start:.0f}s {fmt} clip from {job['source'] or raw.name}"
-                              + ("\n(preview: full quality is kept for publishing)" if send != out else ""),
-                cover=cover)
-            if send != out:
-                send.unlink(missing_ok=True)
-            store.update(job_id, meta={"telegram_message_id": mid})
+        _send_for_review(job_id)
         return out
     except Exception as e:
         log.exception("render failed")
@@ -332,22 +406,142 @@ def render_clip(job_id: str) -> Path | None:
         return None
 
 
+def _send_for_review(job_id: str) -> None:
+    s, store = get_settings(), get_store()
+    if not (s.telegram_bot_token and s.telegram_owner_chat_id):
+        return
+    job = store.get(job_id)
+    meta = job["meta"]
+    out = Path(job["output_path"])
+    send = out
+    if out.stat().st_size > s.max_output_mb * 1024 * 1024:
+        send = video_editor.make_preview(out, s.temp_dir / f"{job_id}_preview.mp4", s.max_output_mb - 3)
+    parent = store.get(job["parent_id"]) if job.get("parent_id") else None
+    risk = rights.summary_line((parent or {}).get("meta", {}).get("rights"))
+    camp = campaigns.get(meta.get("campaign"))
+    extras = []
+    if meta.get("cuts"):
+        extras.append(f"✂️ {meta['cuts']} jump cuts, {meta.get('seconds_removed', 0):.0f}s of dead air removed")
+    if camp:
+        extras.append(f"💰 Campaign: {camp['name']}")
+    if risk:
+        extras.append(risk)
+    try:
+        mid = telegram_bot.send_for_approval(
+            job_id, send, f"🔥 Virality {meta.get('virality', '?')}/100\n"
+                          f"🪝 {meta.get('hook_text') or '(no hook)'}\n\n{caption_text(job['title'] or '', meta)}\n\n"
+                          f"{meta.get('duration', 0):.0f}s {meta.get('format', '')} clip"
+                          + ("\n" + "\n".join(extras) if extras else "")
+                          + ("\n(preview: full quality is kept for publishing)" if send != out else ""),
+            cover=Path(meta["cover_path"]) if meta.get("cover_path") else None)
+        store.update(job_id, meta={"telegram_message_id": mid})
+    except Exception as e:
+        log.warning("telegram review send failed: %s", e)
+    finally:
+        if send != out:
+            send.unlink(missing_ok=True)
+
+
+# ---------------------------------------------------------------- editing
+EDITABLE_AFTER = ("awaiting_approval", "approved", "failed", "scheduled")
+
+
+def edit_clip(job_id: str, title: str | None = None, hook: str | None = None, caption: str | None = None,
+              cover_text: str | None = None, cover_time: float | None = None,
+              cover_image: bytes | None = None, cover_reset: bool = False) -> str:
+    """Change a clip's title/caption (instant) or its hook/cover (re-renders the clip, ~1 min)."""
+    s, store = get_settings(), get_store()
+    job = store.get(job_id)
+    if not job or job["kind"] != "clip":
+        raise ValueError("unknown clip")
+    if job["status"] not in EDITABLE_AFTER:
+        raise ValueError(f"clip is {job['status']}; wait until it's ready")
+    changed, rerender = [], False
+    if title is not None and title.strip():
+        store.update(job_id, title=title.strip()[:100], meta={"title_locked": True})
+        changed.append("title")
+    if caption is not None:
+        store.update(job_id, meta={"caption_custom": caption.strip()[:2000]})
+        changed.append("caption")
+    if hook is not None:
+        store.update(job_id, meta={"hook_custom": " ".join(hook.split())[:80] or None, "hook": bool(hook.strip())})
+        changed.append("hook")
+        rerender = True
+    if cover_text is not None:
+        store.update(job_id, meta={"cover_text": cover_text.strip()[:80] or None})
+        changed.append("cover text")
+        rerender = True
+    if cover_time is not None:
+        store.update(job_id, meta={"cover_time": max(0.0, float(cover_time)), "cover_image": None})
+        changed.append("cover frame")
+        rerender = True
+    if cover_image:
+        p = s.processed_dir / f"{job_id}_custom_cover.jpg"
+        p.write_bytes(cover_image)
+        store.update(job_id, meta={"cover_image": str(p)})
+        changed.append("cover image")
+        rerender = True
+    if cover_reset:
+        store.update(job_id, meta={"cover_image": None, "cover_time": None, "cover_text": None})
+        changed.append("cover")
+        rerender = True
+    if not changed:
+        return "Nothing to change"
+    if rerender:
+        store.update(job_id, status="queued", error=None)
+        _dispatch("render_clip_task", job_id)
+        return f"Updated {', '.join(changed)}. Re-making the clip; the new version will appear in about a minute."
+    return f"Updated {', '.join(changed)}."
+
+
 # ---------------------------------------------------------------- approval
-def approve(job_id: str) -> str:
+def approve(job_id: str, publish_at: str | None = None) -> str:
+    """publish_at: optional ISO time (UTC or with offset). Until then the clip waits as 'scheduled'."""
+    from datetime import datetime, timezone
+
     from app.services import social_publisher as sp
 
     store = get_store()
+    job = store.get(job_id)
+    if not job:
+        return "Unknown job"
     if not any(sp.publishers_configured().values()):
-        job = store.get(job_id)
-        if job and store.transition(job_id, "awaiting_approval", "approved"):
-            return ("Approved and saved. Connect YouTube or Instagram in the web UI (Publishing) "
+        if store.transition(job_id, "awaiting_approval", "approved"):
+            return ("Approved and saved. Connect YouTube, Instagram or TikTok in the web UI (Publishing) "
                     "to post automatically; until then download it from the UI.")
-        return f"Already {job['status']}" if job else "Unknown job"
-    if store.transition(job_id, ("awaiting_approval", "approved"), "publishing"):
+        return f"Already {job['status']}"
+    if publish_at:
+        when = datetime.fromisoformat(publish_at.replace("Z", "+00:00"))
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        if when > datetime.now(timezone.utc):
+            if store.transition(job_id, ("awaiting_approval", "approved", "scheduled"), "scheduled"):
+                store.update(job_id, meta={"publish_at": when.astimezone(timezone.utc).isoformat()})
+                return f"Scheduled for {when.isoformat(timespec='minutes')}"
+            return f"Already {job['status']}"
+    if store.transition(job_id, ("awaiting_approval", "approved", "scheduled"), "publishing"):
         _dispatch("publish_clip_task", job_id)
         return "Approved, publishing now"
     job = store.get(job_id)
-    return f"Already {job['status']}" if job else "Unknown job"
+    return f"Already {job['status']}"
+
+
+def run_due_schedules() -> int:
+    """Publish scheduled clips whose time has come. Called every 30 s by the serve/poll loop."""
+    from datetime import datetime, timezone
+
+    store, n = get_store(), 0
+    now = datetime.now(timezone.utc)
+    for job in store.by_status("scheduled"):
+        at = job["meta"].get("publish_at")
+        try:
+            due = not at or datetime.fromisoformat(at) <= now
+        except ValueError:
+            due = True
+        if due and store.transition(job["id"], "scheduled", "publishing"):
+            _dispatch("publish_clip_task", job["id"])
+            n += 1
+    return n
 
 
 def reject(job_id: str) -> str:
@@ -374,33 +568,105 @@ def publish_clip(job_id: str) -> dict:
     configured = sp.publishers_configured()
     results, errors = {}, []
     if not any(configured.values()):
-        errors.append("no publisher configured (authorise YouTube and/or set Instagram credentials)")
+        errors.append("no publisher configured (connect YouTube, Instagram or TikTok in Publishing)")
+    cover = Path(meta["cover_path"]) if meta.get("cover_path") else None
     # Idempotent: a retry skips platforms that already succeeded.
     if configured["youtube"] and not meta.get("youtube_id"):
         try:
             is_short = meta.get("format", "vertical") != "landscape" and float(meta.get("duration") or 0) <= 180
             results["youtube_id"] = sp.upload_youtube(video, job["title"] or "Clip", caption, shorts=is_short,
-                                                      thumbnail=Path(meta["cover_path"]) if meta.get("cover_path") else None)
+                                                      thumbnail=cover)
+            results["youtube_short"] = is_short
         except Exception as e:
             errors.append(f"YouTube: {e}")
     if configured["instagram"] and not meta.get("instagram_id"):
         try:
             results["instagram_id"] = sp.upload_instagram(video, caption, thumb_offset_ms=meta.get("cover_offset_ms"))
+            results["instagram_permalink"] = sp.instagram_permalink(results["instagram_id"])
         except Exception as e:
             errors.append(f"Instagram: {e}")
+    if configured.get("tiktok") and not meta.get("tiktok_id"):
+        try:
+            results["tiktok_id"] = sp.upload_tiktok(video, caption, cover_ms=meta.get("cover_offset_ms") or 0)
+        except Exception as e:
+            errors.append(f"TikTok: {e}")
     store.update(job_id, meta=results)
     if errors:
         store.update(job_id, status="failed", error="; ".join(errors))
         _notify(f"⚠️ Clip {job_id} publish problems: {'; '.join(errors)}")
     else:
         store.update(job_id, status="published")
-        links = []
-        if results.get("youtube_id"):
-            links.append(f"https://youtu.be/{results['youtube_id']}")
-        if results.get("instagram_id"):
-            links.append(f"Instagram media {results['instagram_id']}")
-        _notify("✅ Published: " + ", ".join(links))
+        links = campaigns.post_links({**meta, **results})
+        camp = campaigns.get(meta.get("campaign"))
+        msg = "✅ Published:\n" + "\n".join(f"{l['platform']}: {l['url']}" for l in links)
+        if camp:
+            msg += f"\n\n💰 Submit these links to {camp['name']}" + (f": {camp['url']}" if camp.get("url") else "")
+        _notify(msg)
     return results
+
+
+def refresh_stats() -> dict:
+    """Read view counts of published clips and estimate campaign earnings."""
+    from app.services import social_publisher as sp
+
+    store = get_store()
+    clips = store.by_status("published")
+    yt_ids = [c["meta"]["youtube_id"] for c in clips if c["meta"].get("youtube_id")]
+    errors = []
+    yt = {}
+    try:
+        yt = sp.youtube_views(yt_ids)
+    except Exception as e:
+        errors.append(f"YouTube views: {str(e)[:150]} (reconnect YouTube to allow reading views)")
+    total_views, total_est = 0, 0.0
+    for c in clips:
+        m = c["meta"]
+        views = yt.get(m.get("youtube_id"), m.get("views_youtube") or 0)
+        ig = m.get("views_instagram") or 0
+        if m.get("instagram_id"):
+            try:
+                ig = sp.instagram_views(m["instagram_id"]) or ig
+            except Exception as e:
+                errors.append(f"Instagram views: {str(e)[:150]}")
+        camp = campaigns.get(m.get("campaign"))
+        est = campaigns.estimate(views + ig, camp["cpm"]) if camp else 0.0
+        store.update(c["id"], meta={"views_youtube": views, "views_instagram": ig, "earnings_est": est})
+        total_views += views + ig
+        total_est += est
+    return {"clips": len(clips), "views": total_views, "earnings_est": round(total_est, 2),
+            "errors": list(dict.fromkeys(errors))}
+
+
+def start_scheduler(interval_s: float = 30.0) -> None:
+    """Background loop that publishes scheduled clips on time (serve / poll processes)."""
+    import threading
+    import time
+
+    if _pools.get("_scheduler"):
+        return
+
+    def loop():
+        while True:
+            try:
+                run_due_schedules()
+            except Exception:
+                log.exception("scheduler tick failed")
+            time.sleep(interval_s)
+
+    _pools["_scheduler"] = threading.Thread(target=loop, daemon=True, name="scheduler")
+    _pools["_scheduler"].start()
+
+
+def check_text(url: str) -> str:
+    """Copyright check as a chat message (Telegram /check)."""
+    try:
+        r = rights.check_url(url)
+    except Exception as e:
+        return f"Couldn't check that link: {str(e)[:200]}"
+    lines = [rights.summary_line(r), f"{r.get('title') or url}" + (f" — {r['uploader']}" if r.get("uploader") else ""),
+             ""] + [f"• {x}" for x in r["reasons"]] + ["", "What to do:"] + [f"• {x}" for x in r["advice"]]
+    lines.append("\n(An estimate from public info, not legal advice.)")
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------- live
@@ -414,6 +680,10 @@ def record_live(job_id: str, realtime_input: bool = False) -> list[str]:
     clip_ids: list[str] = []
     try:
         store.update(job_id, status="recording")
+        try:
+            store.update(job_id, meta={"rights": rights.check_url(job["source"])})
+        except Exception as e:
+            log.info("rights check skipped for live %s: %s", job_id, e)
         proc = ingest.record_live(job["source"], out_dir, segment_s=s.live_segment_s,
                                   max_s=s.live_max_hours * 3600, realtime_input=realtime_input)
 

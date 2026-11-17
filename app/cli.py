@@ -17,7 +17,7 @@ from pathlib import Path
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(prog="clip-agent")
+    ap = argparse.ArgumentParser(prog="clipforge")
     sub = ap.add_subparsers(dest="cmd", required=True)
     c = sub.add_parser("clip")
     c.add_argument("source")
@@ -48,7 +48,9 @@ def main(argv: list[str] | None = None) -> int:
         from app import pipeline
         from app.services import telegram_bot
 
-        telegram_bot.poll_forever(pipeline.approve, pipeline.reject, pipeline.submit_link)
+        pipeline.start_scheduler()
+        telegram_bot.poll_forever(pipeline.approve, pipeline.reject, pipeline.submit_link,
+                                  on_edit=pipeline.edit_clip, on_check=pipeline.check_text)
         return 0
 
     os.environ["CELERY_EAGER"] = "1"  # everything inline
@@ -96,19 +98,22 @@ def serve(host: str | None, port: int | None) -> int:
     n = get_store().mark_interrupted()
     if n:
         logging.info("%d job(s) were interrupted by the last shutdown; retry them from the UI", n)
+    from app import pipeline
+
+    pipeline.start_scheduler()
     if s.telegram_bot_token and s.telegram_owner_chat_id:
-        from app import pipeline
         from app.services import telegram_bot
 
         threading.Thread(target=telegram_bot.poll_forever, daemon=True, name="telegram",
-                         args=(pipeline.approve, pipeline.reject, pipeline.submit_link)).start()
+                         args=(pipeline.approve, pipeline.reject, pipeline.submit_link),
+                         kwargs={"on_edit": pipeline.edit_clip, "on_check": pipeline.check_text}).start()
         logging.info("Telegram bot is listening")
     else:
         logging.info("Telegram not configured (run `python -m app.cli telegram-setup`)")
     host, port = host or s.host, port or s.port
     url = f"http://{'127.0.0.1' if host in ('0.0.0.0', '::') else host}:{port}/"
     threading.Timer(1.5, lambda: webbrowser.open(url)).start()
-    print(f"\n  Clip Agent UI: {url}\n")
+    print(f"\n  ClipForge UI: {url}\n")
     uvicorn.run("app.main:app", host=host, port=port, log_level="info")
     return 0
 

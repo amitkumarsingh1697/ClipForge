@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     hook_overlay: bool = True      # big hook title for the first seconds
     hook_seconds: float = 3.0
     progress_bar: bool = True
+    jump_cuts: bool = True         # remove dead air between sentences (only when there is speech)
+    zoom_punch: bool = True        # punch-in zooms on key words
+    cover_intro: bool = True       # cover image as the first frames (so every platform shows it as the thumbnail)
 
     # --- transcription ------------------------------------------------------
     whisper_model: str = "small"  # tiny/base/small/medium/large-v3
@@ -73,6 +76,9 @@ class Settings(BaseSettings):
     instagram_app_id: str = ""  # needed only for automatic token refresh
     instagram_app_secret: str = ""
     graph_api_version: str = "v21.0"
+
+    # --- TikTok (Content Posting API) ---------------------------------------------
+    tiktok_privacy: str = "SELF_ONLY"  # unaudited TikTok apps may only post privately
 
     # --- misc -----------------------------------------------------------------
     default_hashtags: str = "#shorts"

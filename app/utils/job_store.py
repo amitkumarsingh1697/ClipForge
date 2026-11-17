@@ -96,6 +96,11 @@ class JobStore:
                              (limit,)).fetchall()
         return [self._row(r) for r in rows]
 
+    def by_status(self, status: str, kind: str = "clip") -> list[dict[str, Any]]:
+        with self._conn() as c:
+            rows = c.execute("SELECT * FROM jobs WHERE kind=? AND status=? ORDER BY updated_at", (kind, status)).fetchall()
+        return [self._row(r) for r in rows]
+
     def mark_interrupted(self) -> int:
         """After a restart in thread mode, in-flight work is gone: mark it failed so it can be retried."""
         with self._conn() as c:

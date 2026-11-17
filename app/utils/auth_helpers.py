@@ -26,7 +26,9 @@ import httpx
 from app.config import get_settings
 
 log = logging.getLogger(__name__)
-YOUTUBE_SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
+# upload + read-only (read-only lets ClipForge show views and estimated campaign earnings)
+YOUTUBE_SCOPES = ["https://www.googleapis.com/auth/youtube.upload",
+                  "https://www.googleapis.com/auth/youtube.readonly"]
 
 
 def youtube_token_path() -> Path:
@@ -40,7 +42,7 @@ def youtube_credentials():
     path = youtube_token_path()
     if not path.exists():
         raise RuntimeError("YouTube not authorised: run `python scripts/youtube_auth.py` once")
-    creds = Credentials.from_authorized_user_file(str(path), YOUTUBE_SCOPES)
+    creds = Credentials.from_authorized_user_file(str(path))  # keep the scopes that were actually granted
     if not creds.valid:
         if creds.expired and creds.refresh_token:
             creds.refresh(Request())  # raises RefreshError if the refresh token was revoked/expired
@@ -164,3 +166,48 @@ def youtube_finish(state: str, authorization_response: str) -> Path:
     path.write_text(flow.credentials.to_json())
     path.chmod(0o600)
     return path
+
+
+# ---------------------------------------------------------------- TikTok (Content Posting API)
+def _tt_path() -> Path:
+    return get_settings().secrets_dir / "tiktok.json"
+
+
+def tiktok_configured() -> bool:
+    p = _tt_path()
+    return p.exists() and bool(json.loads(p.read_text()).get("access_token"))
+
+
+def save_tiktok(client_key: str, client_secret: str, access_token: str, refresh_token: str = "",
+                expires_in: int = 86400) -> None:
+    p = _tt_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps({"client_key": client_key.strip(), "client_secret": client_secret.strip(),
+                             "access_token": access_token.strip(), "refresh_token": refresh_token.strip(),
+                             "expires_at": time.time() + int(expires_in or 86400) - 300}))
+    p.chmod(0o600)
+
+
+def tiktok_token(client: httpx.Client | None = None) -> str:
+    """Access tokens last 24 h; refresh tokens 365 days. Refreshed (and saved) when needed."""
+    p = _tt_path()
+    if not p.exists():
+        raise RuntimeError("TikTok is not connected")
+    st = json.loads(p.read_text())
+    if time.time() < st.get("expires_at", 0) or not (st.get("refresh_token") and st.get("client_key")):
+        return st["access_token"]
+    c = client or httpx.Client(timeout=30)
+    try:
+        r = c.post("https://open.tiktokapis.com/v2/oauth/token/", data={
+            "client_key": st["client_key"], "client_secret": st.get("client_secret", ""),
+            "grant_type": "refresh_token", "refresh_token": st["refresh_token"]})
+        d = r.json()
+        if r.status_code != 200 or not d.get("access_token"):
+            raise RuntimeError(f"TikTok token refresh failed: {r.text[:200]}")
+        st.update(access_token=d["access_token"], refresh_token=d.get("refresh_token", st["refresh_token"]),
+                  expires_at=time.time() + int(d.get("expires_in", 86400)) - 300)
+        p.write_text(json.dumps(st))
+        return st["access_token"]
+    finally:
+        if client is None:
+            c.close()

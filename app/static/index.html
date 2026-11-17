@@ -3,240 +3,528 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Clip Agent</title>
+<title>ClipForge</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%237c3aed'/%3E%3Cstop offset='.55' stop-color='%23ec4899'/%3E%3Cstop offset='1' stop-color='%23f97316'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='16' fill='url(%23g)'/%3E%3Cpath d='M24 18l22 14-22 14z' fill='white'/%3E%3C/svg%3E">
 <style>
 :root {
-  --bg: #f6f6f4; --panel: #ffffff; --text: #1b1b1a; --muted: #6b6b66; --line: #e3e3de;
-  --accent: #d9480f; --accent-ink: #ffffff; --ok: #2b8a3e; --warn: #b7791f; --bad: #c92a2a; --chip: #efefea;
+  --bg: #f5f5fa; --bg2: #ececf4; --panel: #ffffff; --panel2: #f8f8fc; --text: #15131f; --muted: #6b6880; --line: #e3e1ee;
+  --brand1: #7c3aed; --brand2: #ec4899; --brand3: #f97316;
+  --grad: linear-gradient(120deg, var(--brand1), var(--brand2) 55%, var(--brand3));
+  --accent: #7c3aed; --accent-ink: #ffffff; --ok: #16a34a; --warn: #c2410c; --bad: #dc2626; --chip: #efedf7;
+  --shadow: 0 1px 2px rgba(20, 10, 50, .06), 0 8px 24px rgba(20, 10, 50, .06);
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #151514; --panel: #1f1f1d; --text: #ecece8; --muted: #9a9a93; --line: #33332f;
-    --accent: #ff7a3d; --accent-ink: #1a0d05; --ok: #51cf66; --warn: #fcc419; --bad: #ff6b6b; --chip: #2a2a27;
+    --bg: #0d0b14; --bg2: #13101d; --panel: #17141f; --panel2: #1e1a29; --text: #f1eff8; --muted: #a29db6; --line: #2a2538;
+    --accent: #a78bfa; --accent-ink: #12051f; --ok: #4ade80; --warn: #fdba74; --bad: #f87171; --chip: #231f30;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.35);
   }
 }
+:root[data-theme="dark"] {
+  --bg: #0d0b14; --bg2: #13101d; --panel: #17141f; --panel2: #1e1a29; --text: #f1eff8; --muted: #a29db6; --line: #2a2538;
+  --accent: #a78bfa; --accent-ink: #12051f; --ok: #4ade80; --warn: #fdba74; --bad: #f87171; --chip: #231f30;
+  --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.35);
+}
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif; }
-header { display: flex; align-items: center; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 0; z-index: 2; flex-wrap: wrap; }
-header h1 { font-size: 18px; margin: 0; letter-spacing: -0.01em; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--text); font: 15px/1.5 Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background-image: radial-gradient(900px 400px at 85% -10%, rgba(236,72,153,.10), transparent 60%),
+                    radial-gradient(800px 380px at -10% 0%, rgba(124,58,237,.12), transparent 60%);
+  background-attachment: fixed; min-height: 100vh; }
+a { color: var(--accent); }
+code { background: var(--chip); padding: 1px 5px; border-radius: 4px; font-size: 13px; }
+
+/* ---------- shell ---------- */
+.top { position: sticky; top: 0; z-index: 5; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  background: color-mix(in srgb, var(--bg) 78%, transparent); border-bottom: 1px solid var(--line); }
+.top-in { max-width: 1240px; margin: 0 auto; display: flex; align-items: center; gap: 14px; padding: 12px 16px; flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--text); }
+.brand svg { width: 34px; height: 34px; flex: none; filter: drop-shadow(0 4px 10px rgba(236,72,153,.35)); }
+.brand b { font-size: 19px; letter-spacing: -.02em; }
+.brand b span { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.brand small { display: block; font-size: 11px; color: var(--muted); font-weight: 500; margin-top: -2px; letter-spacing: .02em; }
 .pills { display: flex; gap: 6px; margin-left: auto; flex-wrap: wrap; }
-.pill { font-size: 12px; padding: 3px 9px; border-radius: 99px; background: var(--chip); color: var(--muted); }
-.pill.on { color: var(--ok); }
-main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 60px; display: grid; gap: 20px; }
-.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
-.tabs { display: flex; gap: 4px; margin-bottom: 14px; background: var(--chip); padding: 4px; border-radius: 9px; width: fit-content; }
-.tabs button { border: 0; background: transparent; color: var(--muted); padding: 6px 14px; border-radius: 6px; font: inherit; cursor: pointer; }
-.tabs button.active { background: var(--panel); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
-label.field { display: block; font-size: 13px; color: var(--muted); margin: 0 0 6px; }
-input[type=url], input[type=text], input[type=password], input[type=number] { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; }
+.pill { font-size: 12px; padding: 4px 10px; border-radius: 99px; background: var(--chip); color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
+.pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); opacity: .5; }
+.pill.on { color: var(--text); } .pill.on::before { background: var(--ok); opacity: 1; box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 25%, transparent); }
+.theme { border: 1px solid var(--line); background: var(--panel); color: var(--muted); border-radius: 8px; padding: 5px 9px; cursor: pointer; font: inherit; font-size: 13px; }
+
+.layout { max-width: 1240px; margin: 0 auto; padding: 20px 16px 80px; display: grid; grid-template-columns: 210px 1fr; gap: 24px; align-items: start; }
+nav.side { position: sticky; top: 76px; display: grid; gap: 4px; }
+nav.side button { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; border: 0; background: transparent; color: var(--muted);
+  padding: 10px 12px; border-radius: 10px; font: inherit; font-weight: 500; cursor: pointer; }
+nav.side button:hover { background: var(--chip); color: var(--text); }
+nav.side button.active { background: var(--panel); color: var(--text); box-shadow: var(--shadow); }
+nav.side button.active .ico { background: var(--grad); color: #fff; }
+nav.side .ico { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; background: var(--chip); font-size: 14px; flex: none; }
+nav.side .count { margin-left: auto; font-size: 11px; background: var(--grad); color: #fff; border-radius: 99px; padding: 1px 7px; }
+.side-foot { margin-top: 14px; padding: 12px; font-size: 12px; color: var(--muted); border: 1px dashed var(--line); border-radius: 10px; }
+
+section.view { display: grid; gap: 18px; }
+.hero { border-radius: 18px; padding: 22px 22px 20px; color: #fff; background: var(--grad); box-shadow: 0 14px 40px rgba(124,58,237,.25); position: relative; overflow: hidden; }
+.hero::after { content: ""; position: absolute; right: -60px; top: -60px; width: 240px; height: 240px; border-radius: 50%; background: rgba(255,255,255,.12); }
+.hero h1 { margin: 0 0 4px; font-size: 24px; letter-spacing: -.02em; }
+.hero p { margin: 0; opacity: .92; max-width: 640px; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-top: 16px; position: relative; z-index: 1; }
+.stat { background: rgba(255,255,255,.16); border: 1px solid rgba(255,255,255,.22); border-radius: 12px; padding: 10px 12px; }
+.stat b { display: block; font-size: 20px; } .stat span { font-size: 12px; opacity: .9; }
+
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 20px; box-shadow: var(--shadow); }
+.card-h { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; flex-wrap: wrap; }
+.card-h h2 { font-size: 16px; margin: 0; letter-spacing: -.01em; }
+.card-h .sub { color: var(--muted); font-size: 13px; }
+.card-h .right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.step { width: 24px; height: 24px; border-radius: 50%; background: var(--grad); color: #fff; display: grid; place-items: center; font-size: 12px; font-weight: 700; flex: none; }
+h3 { font-size: 14px; margin: 18px 0 8px; }
+
+.seg { display: inline-flex; gap: 4px; background: var(--chip); padding: 4px; border-radius: 11px; flex-wrap: wrap; }
+.seg button { border: 0; background: transparent; color: var(--muted); padding: 7px 14px; border-radius: 8px; font: inherit; font-weight: 500; cursor: pointer; }
+.seg button.active { background: var(--panel); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+label.field { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin: 0 0 6px; text-transform: uppercase; letter-spacing: .04em; }
+input[type=url], input[type=text], input[type=password], input[type=number], input[type=datetime-local], select, textarea {
+  width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel2); color: var(--text); font: inherit; }
+textarea { min-height: 78px; resize: vertical; }
+input:focus, select:focus, textarea:focus { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 0; border-color: var(--accent); }
 input[type=file] { font: inherit; color: var(--muted); max-width: 100%; }
-.row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-top: 16px; }
-.formats { display: flex; gap: 8px; flex-wrap: wrap; }
-.fmt { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 9px; padding: 8px 12px; cursor: pointer; user-select: none; background: var(--bg); }
+input[type=range] { width: 100%; accent-color: var(--brand2); }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
+.mt { margin-top: 16px; }
+.inline { display: flex; gap: 8px; align-items: center; } .inline > :first-child { flex: 1; min-width: 0; }
+
+.formats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.fmt { display: flex; align-items: center; gap: 12px; border: 1.5px solid var(--line); border-radius: 12px; padding: 12px; cursor: pointer; user-select: none; background: var(--panel2); transition: border-color .15s, transform .15s; }
+.fmt:hover { transform: translateY(-1px); }
 .fmt input { display: none; }
-.fmt .shape { border: 2px solid var(--muted); border-radius: 2px; }
-.fmt.on { border-color: var(--accent); }
-.fmt.on .shape { border-color: var(--accent); }
-.fmt small { color: var(--muted); }
+.fmt .shape { border: 2px solid var(--muted); border-radius: 3px; flex: none; }
+.fmt.on { border-color: var(--brand2); background: color-mix(in srgb, var(--brand2) 7%, var(--panel2)); }
+.fmt.on .shape { border-color: var(--brand2); background: color-mix(in srgb, var(--brand2) 20%, transparent); }
+.fmt small { color: var(--muted); display: block; font-size: 12px; }
+.toggles { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; }
+.tg { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel2); cursor: pointer; }
+.tg input { margin-top: 3px; accent-color: var(--brand1); width: 16px; height: 16px; flex: none; }
+.tg b { display: block; font-size: 14px; } .tg span { font-size: 12px; color: var(--muted); }
+
 .actions { display: flex; gap: 10px; align-items: center; margin-top: 18px; flex-wrap: wrap; }
-button.primary { background: var(--accent); color: var(--accent-ink); border: 0; padding: 10px 18px; border-radius: 8px; font: inherit; font-weight: 600; cursor: pointer; }
-button.primary:disabled { opacity: .5; cursor: default; }
-.btn { border: 1px solid var(--line); background: var(--panel); color: var(--text); padding: 6px 11px; border-radius: 7px; font: inherit; font-size: 13px; cursor: pointer; text-decoration: none; display: inline-block; }
-.btn.ok { border-color: var(--ok); color: var(--ok); }
-.btn.bad { border-color: var(--bad); color: var(--bad); }
-.msg { font-size: 13px; color: var(--muted); }
-.msg.err { color: var(--bad); }
-h2 { font-size: 15px; margin: 0 0 12px; }
-.job { border-top: 1px solid var(--line); padding: 14px 0; }
-.job:first-of-type { border-top: 0; }
-.job-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
-.job-title { font-weight: 600; overflow-wrap: anywhere; }
+button.primary, a.primary { background: var(--grad); color: #fff; border: 0; padding: 11px 20px; border-radius: 11px; font: inherit; font-weight: 600; cursor: pointer; box-shadow: 0 6px 18px rgba(236,72,153,.28); text-decoration: none; display: inline-block; }
+button.primary:disabled { opacity: .5; cursor: default; box-shadow: none; }
+.btn { border: 1px solid var(--line); background: var(--panel); color: var(--text); padding: 6px 11px; border-radius: 9px; font: inherit; font-size: 13px; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 5px; }
+.btn:hover { border-color: var(--accent); }
+.btn.ok { border-color: color-mix(in srgb, var(--ok) 60%, var(--line)); color: var(--ok); }
+.btn.bad { border-color: color-mix(in srgb, var(--bad) 50%, var(--line)); color: var(--bad); }
+.btn.solid { background: var(--ok); color: #fff; border-color: var(--ok); }
+.btn:disabled { opacity: .5; }
+.msg { font-size: 13px; color: var(--muted); } .msg.err { color: var(--bad); } .msg.good { color: var(--ok); }
+.empty { color: var(--muted); padding: 22px; text-align: center; border: 1px dashed var(--line); border-radius: 14px; }
+.hidden { display: none !important; }
+
+/* risk */
+.risk { border-radius: 12px; padding: 12px 14px; border: 1px solid var(--line); background: var(--panel2); font-size: 13px; }
+.risk ul { margin: 6px 0 0; padding-left: 18px; }
+.risk.low { border-color: color-mix(in srgb, var(--ok) 55%, var(--line)); }
+.risk.medium { border-color: color-mix(in srgb, #eab308 60%, var(--line)); }
+.risk.high { border-color: color-mix(in srgb, var(--bad) 60%, var(--line)); }
+.badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 99px; background: var(--chip); color: var(--muted); text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; }
+.badge.low { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
+.badge.medium { background: color-mix(in srgb, #eab308 22%, transparent); color: #b45309; }
+.badge.high { background: color-mix(in srgb, var(--bad) 18%, transparent); color: var(--bad); }
+
+/* jobs */
+.job { padding: 16px 0; border-top: 1px solid var(--line); } .job:first-child { border-top: 0; padding-top: 0; }
+.job-head { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.job-title { font-weight: 650; overflow-wrap: anywhere; }
 .meta { color: var(--muted); font-size: 12px; }
-.status { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; padding: 2px 7px; border-radius: 5px; background: var(--chip); color: var(--muted); }
-.status.awaiting_approval { color: var(--warn); }
-.status.published, .status.done, .status.approved { color: var(--ok); }
-.vir { font-weight: 700; font-size: 12px; padding: 2px 7px; border-radius: 5px; background: var(--chip); }
-.vir.hi { color: var(--ok); } .vir.mid { color: var(--warn); } .vir.lo { color: var(--muted); }
-.hookline { font-size: 12px; color: var(--muted); }
-.warn-text { color: var(--warn); font-size: 12px; }
-ol.steps { margin: 6px 0 12px; padding-left: 20px; color: var(--muted); font-size: 13px; }
-ol.steps li { margin: 3px 0; }
-.ok-text { color: var(--ok); font-weight: 600; }
-.status.failed, .status.rejected { color: var(--bad); }
-.clips { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; margin-top: 12px; align-items: start; }
-.clip { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--bg); display: flex; flex-direction: column; }
-.clip .frame { background: #000; display: flex; align-items: center; justify-content: center; aspect-ratio: 9/16; }
+.status { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; padding: 2px 8px; border-radius: 99px; background: var(--chip); color: var(--muted); white-space: nowrap; }
+.status.awaiting_approval { color: #b45309; background: color-mix(in srgb, #eab308 20%, transparent); }
+.status.published, .status.done, .status.approved { color: var(--ok); background: color-mix(in srgb, var(--ok) 15%, transparent); }
+.status.scheduled { color: var(--accent); background: color-mix(in srgb, var(--accent) 15%, transparent); }
+.status.failed, .status.rejected { color: var(--bad); background: color-mix(in srgb, var(--bad) 14%, transparent); }
+.clips { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; margin-top: 14px; align-items: start; }
+.clip { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--panel2); display: flex; flex-direction: column; transition: transform .15s, box-shadow .15s; }
+.clip:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
+.clip .frame { background: #000; display: flex; align-items: center; justify-content: center; aspect-ratio: 9/16; position: relative; }
 .clip .frame.landscape { aspect-ratio: 16/9; } .clip .frame.square { aspect-ratio: 1; } .clip .frame.portrait { aspect-ratio: 4/5; }
 .clip video { width: 100%; height: 100%; object-fit: contain; display: block; }
-.clip .frame .ph { color: #888; font-size: 13px; }
-.clip .info { padding: 10px; display: grid; gap: 8px; }
-.clip .btns { display: flex; gap: 6px; flex-wrap: wrap; }
+.clip .frame .ph { color: #aaa; font-size: 13px; display: grid; gap: 10px; place-items: center; }
+.spinner { width: 26px; height: 26px; border-radius: 50%; border: 3px solid rgba(255,255,255,.15); border-top-color: var(--brand2); animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.vir { position: absolute; top: 8px; left: 8px; font-weight: 800; font-size: 12px; padding: 3px 8px; border-radius: 99px; color: #fff; background: rgba(0,0,0,.55); backdrop-filter: blur(4px); }
+.vir.hi { background: linear-gradient(120deg, #f97316, #ec4899); }
+.clip .info { padding: 12px; display: grid; gap: 7px; }
+.clip-title { font-weight: 650; font-size: 14px; overflow-wrap: anywhere; line-height: 1.35; }
+.hookline { font-size: 12px; color: var(--muted); } .hookline b { color: var(--text); }
+.tags { color: var(--accent); font-size: 12px; overflow-wrap: anywhere; }
+.warn-text { color: var(--warn); font-size: 12px; }
 .err-text { color: var(--bad); font-size: 12px; overflow-wrap: anywhere; max-height: 4.5em; overflow: hidden; }
-.empty { color: var(--muted); padding: 10px 0; }
-.hidden { display: none !important; }
-.switch { display: flex; align-items: center; gap: 8px; cursor: pointer; }
-details.panel > summary { cursor: pointer; font-weight: 600; list-style: none; display: flex; justify-content: space-between; gap: 10px; }
-details.panel > summary::-webkit-details-marker { display: none; }
-details.panel > summary::after { content: "Show"; color: var(--muted); font-weight: 400; font-size: 13px; }
-details.panel[open] > summary::after { content: "Hide"; }
-select { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; }
-.inline { display: flex; gap: 8px; } .inline > :first-child { flex: 1; min-width: 0; }
-.clip-title { font-weight: 600; font-size: 13px; overflow-wrap: anywhere; }
-.tags { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
-@media (max-width: 520px) { header { padding: 12px 16px; } .panel { padding: 14px; } }
+.clip .btns { display: flex; gap: 6px; flex-wrap: wrap; }
+.chips { display: flex; gap: 5px; flex-wrap: wrap; }
+.chip { font-size: 11px; padding: 2px 7px; border-radius: 6px; background: var(--chip); color: var(--muted); }
+
+/* earn */
+.markets { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+.market { border: 1px solid var(--line); border-radius: 14px; padding: 14px; background: var(--panel2); display: grid; gap: 6px; }
+.market b { font-size: 15px; } .market p { margin: 0; font-size: 13px; color: var(--muted); }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 9px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; }
+.money { font-weight: 700; color: var(--ok); }
+.tablewrap { overflow-x: auto; }
+
+ol.steps { margin: 6px 0 12px; padding-left: 20px; color: var(--muted); font-size: 13px; } ol.steps li { margin: 4px 0; }
+.ok-text { color: var(--ok); font-weight: 600; }
+.pub-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; }
+.pub { border: 1px solid var(--line); border-radius: 14px; padding: 16px; background: var(--panel2); }
+.pub h3 { margin: 0 0 6px; display: flex; gap: 8px; align-items: center; }
+.logo-dot { width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; color: #fff; font-size: 12px; font-weight: 800; }
+
+/* modal */
+dialog { border: 1px solid var(--line); border-radius: 18px; padding: 0; background: var(--panel); color: var(--text); width: min(720px, calc(100vw - 32px)); box-shadow: 0 30px 80px rgba(0,0,0,.35); }
+dialog::backdrop { background: rgba(10, 5, 25, .55); backdrop-filter: blur(3px); }
+.dlg-h { padding: 16px 20px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 10px; }
+.dlg-h h2 { margin: 0; font-size: 16px; }
+.dlg-b { padding: 18px 20px; display: grid; gap: 14px; max-height: 70vh; overflow: auto; }
+.dlg-f { padding: 14px 20px; border-top: 1px solid var(--line); display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; align-items: center; }
+.edit-grid { display: grid; grid-template-columns: 180px 1fr; gap: 18px; }
+.edit-grid img { width: 100%; border-radius: 10px; background: #000; display: block; }
+.opts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.opts button { font-size: 12px; border: 1px dashed var(--line); background: transparent; color: var(--muted); border-radius: 8px; padding: 4px 8px; cursor: pointer; font-family: inherit; text-align: left; }
+.opts button:hover { border-color: var(--accent); color: var(--text); }
+
+@media (max-width: 860px) {
+  .layout { grid-template-columns: 1fr; }
+  nav.side { position: static; grid-auto-flow: column; overflow-x: auto; gap: 6px; }
+  nav.side button { white-space: nowrap; padding: 8px 10px; }
+  nav.side .count { margin-left: 4px; }
+  .side-foot { display: none; }
+  .edit-grid { grid-template-columns: 1fr; } .edit-grid img { max-width: 200px; }
+}
+@media (max-width: 520px) { .card { padding: 16px; } .hero { padding: 18px; } .pills { display: none; } }
 </style>
 </head>
 <body>
-<header>
-  <h1>Clip Agent</h1>
+<header class="top"><div class="top-in">
+  <a class="brand" href="#" data-go="create" aria-label="ClipForge home">
+    <svg viewBox="0 0 64 64" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7c3aed"/><stop offset=".55" stop-color="#ec4899"/><stop offset="1" stop-color="#f97316"/></linearGradient></defs>
+      <rect width="64" height="64" rx="16" fill="url(#lg)"/>
+      <path d="M14 44h36l-4 6H18z" fill="rgba(255,255,255,.55)"/>
+      <path d="M25 16l20 12-20 12z" fill="#fff"/>
+      <path d="M48 12l2 4 4 2-4 2-2 4-2-4-4-2 4-2z" fill="#fff"/></svg>
+    <div><b>Clip<span>Forge</span></b><small>Viral clips, made locally</small></div>
+  </a>
   <div class="pills" id="pills"></div>
-</header>
-<main>
-  <section class="panel hidden" id="auth">
-    <h2>API token</h2>
-    <p class="msg">This server needs the API_TOKEN from its .env file.</p>
-    <input type="password" id="token" placeholder="Paste API token">
-    <div class="actions"><button class="primary" id="saveToken">Save</button></div>
-  </section>
+  <button class="theme" id="themeBtn" type="button" title="Switch light / dark">🌓</button>
+</div></header>
 
-  <section class="panel" id="create">
-    <div class="tabs" role="tablist">
-      <button class="active" data-src="url">Video link</button>
-      <button data-src="upload">Upload file</button>
-      <button data-src="live">Live stream</button>
-    </div>
-    <div id="src-url"><label class="field">YouTube, Twitch, Kick, X, Instagram, Reddit or a direct video URL</label><input type="url" id="url" placeholder="https://..."></div>
-    <div id="src-upload" class="hidden"><label class="field">Video file (.mp4 .mov .mkv .webm)</label><input type="file" id="file" accept="video/*"></div>
-    <div id="src-live" class="hidden"><label class="field">Live channel or stream URL. Records and cuts clips whenever something exciting happens.</label><input type="url" id="live" placeholder="https://www.twitch.tv/channel"></div>
+<div class="layout">
+  <nav class="side" id="nav">
+    <button data-go="create" class="active"><span class="ico">✦</span>Create</button>
+    <button data-go="clips"><span class="ico">▶</span>Clips <span class="count hidden" id="reviewCount"></span></button>
+    <button data-go="earn"><span class="ico">$</span>Earn</button>
+    <button data-go="publish"><span class="ico">↗</span>Publishing</button>
+    <button data-go="ai"><span class="ico">✺</span>AI &amp; brand</button>
+    <div class="side-foot">Runs on your computer. Approve clips here or in Telegram.</div>
+  </nav>
 
-    <div style="margin-top:16px">
-      <label class="field">Formats (pick one or more)</label>
-      <div class="formats" id="formats"></div>
-    </div>
-    <div class="row">
-      <div><label class="field">Clips per video</label><input type="number" id="clips" min="1" max="10"></div>
-      <div><label class="field">Clip length: <span id="lenOut"></span></label><input type="range" id="len" style="width:100%"><div class="warn-text hidden" id="lenWarn">Over 3 min: YouTube posts it as a normal video, not a Short.</div></div>
-      <div><label class="field">Title (optional)</label><input type="text" id="title" placeholder="From the video"></div>
-      <div><label class="field">Caption style</label>
-        <select id="capStyle">
-          <option value="pop">Pop: word-by-word highlight (viral look)</option>
-          <option value="classic">Classic: bold white words</option>
-          <option value="minimal">Minimal: text on a dark box</option>
-          <option value="none">No captions</option>
-        </select></div>
-    </div>
-    <div class="row">
-      <div><label class="switch"><input type="checkbox" id="hook"> Hook title for the first 3 seconds</label></div>
-      <div><label class="switch"><input type="checkbox" id="pbar"> Progress bar</label></div>
-    </div>
-    <div class="actions">
-      <button class="primary" id="go">Make clips</button>
-      <span class="msg" id="formMsg"></span>
-    </div>
-  </section>
+  <main>
+    <section class="card hidden" id="auth">
+      <div class="card-h"><h2>API token</h2></div>
+      <p class="msg">This server needs the API_TOKEN from its .env file.</p>
+      <input type="password" id="token" placeholder="Paste API token">
+      <div class="actions"><button class="primary" id="saveToken">Save</button></div>
+    </section>
 
-  <details class="panel" id="pubPanel">
-    <summary>Publishing <span class="meta" id="pubSummary"></span></summary>
-    <p class="msg">Until an account is connected, Approve just saves the clip so you can download it and post it yourself.</p>
-    <h2 style="margin-top:14px">YouTube</h2>
-    <div id="ytState" class="msg"></div>
-    <ol class="steps">
-      <li>Open <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">Google Cloud Console</a> and create a project (free).</li>
-      <li>Enable <a href="https://console.cloud.google.com/apis/library/youtube.googleapis.com" target="_blank" rel="noopener">YouTube Data API v3</a>.</li>
-      <li>Under <a href="https://console.cloud.google.com/auth/overview" target="_blank" rel="noopener">Google Auth Platform</a>: set it up as External, add yourself as a user, then <b>Publish app</b> (In production) so the login doesn't expire after 7 days.</li>
-      <li>Create an OAuth client of type <b>Desktop app</b>, download its JSON and upload it here.</li>
-      <li>Press Connect YouTube and allow access (Google may warn the app is unverified: Advanced → continue).</li>
-    </ol>
-    <div class="actions" style="margin-top:0">
-      <input type="file" id="ytFile" accept="application/json,.json">
-      <button class="btn" id="ytUpload" type="button">Upload JSON</button>
-      <a class="btn ok" id="ytConnect" href="#">Connect YouTube</a>
-    </div>
-    <p class="msg">New Google projects can only post <b>private</b> videos until Google audits them; you can switch them to public in YouTube Studio.</p>
-    <h2 style="margin-top:18px">Instagram</h2>
-    <div id="igState" class="msg"></div>
-    <ol class="steps">
-      <li>Switch your Instagram to a <b>Professional</b> (Business or Creator) account and link it to a Facebook Page.</li>
-      <li>Create an app at <a href="https://developers.facebook.com/apps" target="_blank" rel="noopener">Meta for Developers</a> and add the Instagram product.</li>
-      <li>Generate a long-lived access token with <code>instagram_content_publish</code> permission, and copy your Instagram account ID.</li>
-    </ol>
-    <div class="row" style="margin-top:0">
-      <div><label class="field">Instagram account ID</label><input type="text" id="igUser"></div>
-      <div><label class="field">Access token</label><input type="password" id="igToken"></div>
-      <div><label class="field">App ID (optional, for auto-refresh)</label><input type="text" id="igAppId"></div>
-      <div><label class="field">App secret (optional)</label><input type="password" id="igAppSecret"></div>
-    </div>
-    <div class="actions"><button class="btn" id="igSave" type="button">Save &amp; check</button><span class="msg" id="pubMsg"></span></div>
-  </details>
+    <!-- ================= CREATE ================= -->
+    <section class="view" id="view-create">
+      <div class="hero">
+        <h1>Turn any video into viral clips</h1>
+        <p>Paste a link, upload a file or follow a live stream. ClipForge finds the best moments, adds captions, hooks and a cover, and sends them to you for approval.</p>
+        <div class="stats" id="heroStats"></div>
+      </div>
 
-  <details class="panel" id="aiPanel">
-    <summary>AI settings <span class="meta" id="aiSummary"></span></summary>
-    <p class="msg">Everything runs on this computer. An LLM is optional: it writes titles, captions and hashtags from what is said in each clip, and can help choose which moments become clips.</p>
-    <div class="row">
-      <div><label class="field">LLM</label>
-        <select id="llmProvider">
-          <option value="none">None (no LLM)</option>
-          <option value="ollama">Ollama</option>
-          <option value="openai">OpenAI-compatible (LM Studio, llama.cpp…)</option>
-        </select></div>
-      <div><label class="field">Server URL</label><input type="text" id="llmUrl"></div>
-      <div><label class="field">Model</label>
-        <div class="inline"><select id="llmModel"></select><button class="btn" id="llmRefresh" type="button">Refresh</button></div></div>
-      <div id="keyBox"><label class="field">API key (only if your server needs one)</label><input type="password" id="llmKey" placeholder="unchanged"></div>
-    </div>
-    <div class="row">
-      <div><label class="switch"><input type="checkbox" id="llmTitles"> Write titles, captions &amp; hashtags</label></div>
-      <div><label class="switch"><input type="checkbox" id="llmRank"> Let the LLM help pick the best moments (slower)</label></div>
-      <div><label class="field">Speech-to-text (Whisper) model</label><select id="whisperModel"></select></div>
-    </div>
-    <div class="actions">
-      <button class="primary" id="saveAi" type="button">Save</button>
-      <button class="btn" id="testAi" type="button">Test LLM</button>
-      <span class="msg" id="aiMsg"></span>
-    </div>
-  </details>
+      <div class="card">
+        <div class="card-h"><span class="step">1</span><h2>Source</h2>
+          <div class="right"><div class="seg" id="srcTabs">
+            <button class="active" data-src="url">Video link</button><button data-src="upload">Upload</button><button data-src="live">Live stream</button>
+          </div></div></div>
+        <div id="src-url"><label class="field">YouTube, Twitch, Kick, TikTok, X, Instagram, Reddit or a direct video URL</label>
+          <div class="inline"><input type="url" id="url" placeholder="https://..."><button class="btn" id="checkBtn" type="button">🛡 Check copyright</button></div></div>
+        <div id="src-upload" class="hidden"><label class="field">Video file (.mp4 .mov .mkv .webm)</label><input type="file" id="file" accept="video/*"></div>
+        <div id="src-live" class="hidden"><label class="field">Live channel or stream URL. Records and cuts clips whenever something exciting happens</label>
+          <div class="inline"><input type="url" id="live" placeholder="https://www.twitch.tv/channel"><button class="btn" id="checkLiveBtn" type="button">🛡 Check copyright</button></div></div>
+        <div id="riskBox" class="mt hidden"></div>
+      </div>
 
-  <section class="panel">
-    <h2>Jobs</h2>
-    <div id="jobs"><div class="empty">No jobs yet.</div></div>
-  </section>
-</main>
+      <div class="card">
+        <div class="card-h"><span class="step">2</span><h2>Shape</h2><span class="sub">Pick one or more</span></div>
+        <div class="formats" id="formats"></div>
+        <div class="grid mt">
+          <div><label class="field">Clips per video</label><input type="number" id="clips" min="1" max="10"></div>
+          <div><label class="field">Clip length · <span id="lenOut"></span></label><input type="range" id="len"><div class="warn-text hidden" id="lenWarn">Over 3 min: YouTube posts it as a normal video, not a Short.</div></div>
+          <div><label class="field">Title (optional)</label><input type="text" id="title" placeholder="Taken from the video"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-h"><span class="step">3</span><h2>Style</h2><span class="sub">What top clipping tools add</span></div>
+        <div class="grid">
+          <div><label class="field">Captions</label>
+            <select id="capStyle">
+              <option value="pop">Pop: word-by-word highlight (viral look)</option>
+              <option value="classic">Classic: bold white words</option>
+              <option value="minimal">Minimal: text on a dark box</option>
+              <option value="none">No captions</option>
+            </select></div>
+          <div><label class="field">Campaign (optional)</label><select id="campaign"><option value="">None</option></select></div>
+        </div>
+        <div class="toggles mt">
+          <label class="tg"><input type="checkbox" id="hook"><div><b>Hook title</b><span>Big curiosity text for the first 3 seconds</span></div></label>
+          <label class="tg"><input type="checkbox" id="cuts"><div><b>Jump cuts</b><span>Removes dead air between sentences</span></div></label>
+          <label class="tg"><input type="checkbox" id="zoom"><div><b>Zoom punch-ins</b><span>Quick zooms on key words</span></div></label>
+          <label class="tg"><input type="checkbox" id="pbar"><div><b>Progress bar</b><span>Keeps people watching to the end</span></div></label>
+          <label class="tg"><input type="checkbox" id="intro"><div><b>Cover as first frame</b><span>Every platform shows your cover as the thumbnail</span></div></label>
+        </div>
+        <div class="actions">
+          <button class="primary" id="go">✦ Make clips</button>
+          <span class="msg" id="formMsg"></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= CLIPS ================= -->
+    <section class="view hidden" id="view-clips">
+      <div class="card">
+        <div class="card-h"><h2>Your clips</h2><span class="sub">Newest first. Edit the title, hook or cover before you approve.</span>
+          <div class="right"><select id="filter" style="width:auto"><option value="">All</option><option value="awaiting_approval">Ready for review</option><option value="scheduled">Scheduled</option><option value="published">Published</option><option value="failed">Failed</option></select></div></div>
+        <div id="jobs"><div class="empty">No clips yet. Start on the Create page.</div></div>
+      </div>
+    </section>
+
+    <!-- ================= EARN ================= -->
+    <section class="view hidden" id="view-earn">
+      <div class="hero">
+        <h1>Get paid for your clips</h1>
+        <p>Creators and brands pay clippers per 1,000 views. Join a campaign on a marketplace, tag clips with it here, and ClipForge adds the required hashtags, posts the clip and keeps the links ready to submit.</p>
+        <div class="stats" id="earnStats"></div>
+      </div>
+      <div class="card">
+        <div class="card-h"><h2>Marketplaces</h2><span class="sub">None of them offer an API yet, so you submit post links on their site</span></div>
+        <div class="markets" id="markets"></div>
+      </div>
+      <div class="card">
+        <div class="card-h"><h2>Your campaigns</h2>
+          <div class="right"><button class="btn" id="statsBtn" type="button">↻ Refresh views</button></div></div>
+        <div class="tablewrap"><table><thead><tr><th>Campaign</th><th>Rate</th><th>Clips</th><th>Views</th><th>Est. earned</th><th>Post links to submit</th><th></th></tr></thead><tbody id="campRows"></tbody></table></div>
+        <span class="msg" id="earnMsg"></span>
+        <h3>Add a campaign</h3>
+        <div class="grid">
+          <div><label class="field">Name</label><input type="text" id="cName" placeholder="e.g. Streamer X clipping"></div>
+          <div><label class="field">Marketplace</label><select id="cMarket"></select></div>
+          <div><label class="field">Pay per 1K views ($)</label><input type="number" id="cCpm" min="0" step="0.1" placeholder="1.50"></div>
+          <div><label class="field">Campaign page URL</label><input type="url" id="cUrl" placeholder="https://..."></div>
+          <div><label class="field">Required hashtags</label><input type="text" id="cTags" placeholder="#ad #streamerx"></div>
+          <div><label class="field">Required mention</label><input type="text" id="cMention" placeholder="@streamerx"></div>
+        </div>
+        <div class="actions"><button class="primary" id="cSave" type="button">Add campaign</button><span class="msg" id="cMsg"></span></div>
+        <p class="msg">Only clip creators who allow it. Campaign rules (hashtags, length, where to post) decide whether views get paid.</p>
+      </div>
+    </section>
+
+    <!-- ================= PUBLISH ================= -->
+    <section class="view hidden" id="view-publish">
+      <div class="card">
+        <div class="card-h"><h2>Publishing</h2><span class="sub" id="pubSummary"></span></div>
+        <p class="msg">Until an account is connected, Approve just saves the clip so you can download it and post it yourself. Approved clips go to every connected account.</p>
+        <div class="pub-grid">
+          <div class="pub">
+            <h3><span class="logo-dot" style="background:#ff0033">▶</span>YouTube Shorts</h3>
+            <div id="ytState" class="msg"></div>
+            <ol class="steps">
+              <li>Open <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">Google Cloud Console</a> and create a project (free).</li>
+              <li>Enable <a href="https://console.cloud.google.com/apis/library/youtube.googleapis.com" target="_blank" rel="noopener">YouTube Data API v3</a>.</li>
+              <li>In <a href="https://console.cloud.google.com/auth/overview" target="_blank" rel="noopener">Google Auth Platform</a>: External, add yourself as a test user, then <b>Publish app</b> so sign-in doesn't expire after 7 days.</li>
+              <li>Create an OAuth client of type <b>Desktop app</b>, download its JSON and upload it here.</li>
+              <li>Press Connect YouTube and allow access (if Google says "unverified": Advanced → continue).</li>
+            </ol>
+            <div class="actions" style="margin-top:0">
+              <input type="file" id="ytFile" accept="application/json,.json">
+              <button class="btn" id="ytUpload" type="button">Upload JSON</button>
+              <a class="btn ok" id="ytConnect" href="#">Connect YouTube</a>
+            </div>
+            <p class="msg">New Google projects post <b>private</b> videos until Google audits them; switch them to public in YouTube Studio.</p>
+          </div>
+          <div class="pub">
+            <h3><span class="logo-dot" style="background:linear-gradient(45deg,#f58529,#dd2a7b,#8134af)">◎</span>Instagram Reels</h3>
+            <div id="igState" class="msg"></div>
+            <ol class="steps">
+              <li>Switch Instagram to a <b>Professional</b> (Business or Creator) account linked to a Facebook Page.</li>
+              <li>Create an app at <a href="https://developers.facebook.com/apps" target="_blank" rel="noopener">Meta for Developers</a> and add the Instagram product.</li>
+              <li>Generate a long-lived token with <code>instagram_content_publish</code>, and copy your Instagram account ID.</li>
+            </ol>
+            <div class="grid">
+              <div><label class="field">Account ID</label><input type="text" id="igUser"></div>
+              <div><label class="field">Access token</label><input type="password" id="igToken"></div>
+              <div><label class="field">App ID (optional)</label><input type="text" id="igAppId"></div>
+              <div><label class="field">App secret (optional)</label><input type="password" id="igAppSecret"></div>
+            </div>
+            <div class="actions"><button class="btn" id="igSave" type="button">Save &amp; check</button></div>
+          </div>
+          <div class="pub">
+            <h3><span class="logo-dot" style="background:#111;border:1px solid #444">♪</span>TikTok</h3>
+            <div id="ttState" class="msg"></div>
+            <ol class="steps">
+              <li>Create an app at <a href="https://developers.tiktok.com/apps" target="_blank" rel="noopener">TikTok for Developers</a> and add <b>Content Posting API</b> (Direct Post) and Login Kit.</li>
+              <li>Sign in with your TikTok account through the app to get an access token and refresh token (scope <code>video.publish</code>).</li>
+              <li>Paste them here. Until TikTok audits your app, posts are <b>private</b> (only you can see them).</li>
+            </ol>
+            <div class="grid">
+              <div><label class="field">Client key</label><input type="text" id="ttKey"></div>
+              <div><label class="field">Client secret</label><input type="password" id="ttSecret"></div>
+              <div><label class="field">Access token</label><input type="password" id="ttToken"></div>
+              <div><label class="field">Refresh token</label><input type="password" id="ttRefresh"></div>
+            </div>
+            <div class="actions"><button class="btn" id="ttSave" type="button">Save &amp; check</button></div>
+          </div>
+        </div>
+        <p class="msg" id="pubMsg"></p>
+      </div>
+    </section>
+
+    <!-- ================= AI ================= -->
+    <section class="view hidden" id="view-ai">
+      <div class="card">
+        <div class="card-h"><h2>AI model</h2><span class="sub" id="aiSummary"></span></div>
+        <p class="msg">Optional. An LLM writes the hook, titles (with A/B alternatives), caption and hashtags from what is said, and can help pick the best moments. Local models keep everything on this computer. Cloud models need an API key from their developer console: the ChatGPT, Claude or Gemini apps themselves can't be connected.</p>
+        <div class="grid mt">
+          <div><label class="field">Provider</label><select id="llmProvider"></select></div>
+          <div><label class="field">Server URL</label><input type="text" id="llmUrl"></div>
+          <div><label class="field">Model</label><div class="inline"><input type="text" id="llmModel" list="modelList" placeholder="Pick or type a model"><datalist id="modelList"></datalist><button class="btn" id="llmRefresh" type="button">↻</button></div></div>
+          <div id="keyBox"><label class="field">API key <a id="keyLink" href="#" target="_blank" rel="noopener" class="hidden">get one</a></label><input type="password" id="llmKey" placeholder="unchanged"></div>
+        </div>
+        <div class="toggles mt">
+          <label class="tg"><input type="checkbox" id="llmTitles"><div><b>Write hooks, titles &amp; hashtags</b><span>From what is said in each clip</span></div></label>
+          <label class="tg"><input type="checkbox" id="llmRank"><div><b>Help pick the best moments</b><span>Slower, often better picks</span></div></label>
+        </div>
+        <div class="grid mt"><div><label class="field">Speech-to-text (Whisper) model</label><select id="whisperModel"></select></div></div>
+        <div class="actions">
+          <button class="primary" id="saveAi" type="button">Save</button>
+          <button class="btn" id="testAi" type="button">Test</button>
+          <span class="msg" id="aiMsg"></span>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-h"><h2>Your brand</h2></div>
+        <div class="grid">
+          <div><label class="field">Watermark (your handle on every clip)</label><input type="text" id="watermark" placeholder="@yourchannel" maxlength="40"></div>
+          <div><label class="field">Default hashtags</label><input type="text" id="defTags" placeholder="#shorts #viral"></div>
+        </div>
+        <div class="actions"><button class="primary" id="saveBrand" type="button">Save</button><span class="msg" id="brandMsg"></span></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- ================= EDIT DIALOG ================= -->
+<dialog id="editDlg">
+  <div class="dlg-h"><h2>Edit clip</h2><span class="meta" id="edId"></span></div>
+  <div class="dlg-b">
+    <div class="edit-grid">
+      <div><img id="edCover" alt="Cover preview"><div class="meta" style="margin-top:6px">Current cover</div></div>
+      <div style="display:grid;gap:12px">
+        <div><label class="field">Title</label><input type="text" id="edTitle" maxlength="100"><div class="opts" id="edTitleOpts"></div></div>
+        <div><label class="field">Hook (big text in the first seconds)</label><input type="text" id="edHook" maxlength="80"><div class="opts" id="edHookOpts"></div></div>
+      </div>
+    </div>
+    <div><label class="field">Caption</label><textarea id="edCaption"></textarea></div>
+    <h3 style="margin:0">Cover</h3>
+    <div class="grid">
+      <div><label class="field">Text on the cover</label><input type="text" id="edCoverText" maxlength="80" placeholder="Same as hook"></div>
+      <div><label class="field">Use the frame at · <span id="edTimeOut">auto</span></label><input type="range" id="edTime" min="0" step="0.5"></div>
+      <div><label class="field">Or upload your own image</label><input type="file" id="edImg" accept="image/jpeg,image/png,image/webp"></div>
+    </div>
+    <label class="tg" style="max-width:380px"><input type="checkbox" id="edReset"><div><b>Back to automatic cover</b><span>Sharpest frame + hook</span></div></label>
+  </div>
+  <div class="dlg-f">
+    <span class="msg" id="edMsg" style="margin-right:auto"></span>
+    <button class="btn" id="edCancel" type="button">Cancel</button>
+    <button class="primary" id="edSave" type="button">Save changes</button>
+  </div>
+</dialog>
+
+<dialog id="schedDlg">
+  <div class="dlg-h"><h2>Approve &amp; publish</h2></div>
+  <div class="dlg-b">
+    <p class="msg" style="margin:0">Post now, or pick a time and ClipForge publishes it then (keep the app running).</p>
+    <div><label class="field">Publish at (your time)</label><input type="datetime-local" id="schedAt"></div>
+    <div class="opts" id="schedQuick"></div>
+  </div>
+  <div class="dlg-f">
+    <span class="msg" id="schedMsg" style="margin-right:auto"></span>
+    <button class="btn" id="schedCancel" type="button">Cancel</button>
+    <button class="btn" id="schedLater" type="button">Schedule</button>
+    <button class="primary" id="schedNow" type="button">Publish now</button>
+  </div>
+</dialog>
+
 <script>
 const FORMAT_INFO = {
-  vertical: ["9:16", "Shorts, Reels, TikTok", 12, 21],
-  portrait: ["4:5", "Instagram feed", 16, 20],
-  square: ["1:1", "Feed posts", 18, 18],
-  landscape: ["16:9", "YouTube, X", 24, 14],
+  vertical: ["9:16", "Shorts, Reels, TikTok", 14, 24],
+  portrait: ["4:5", "Instagram feed", 18, 22],
+  square: ["1:1", "Feed posts", 20, 20],
+  landscape: ["16:9", "YouTube, X", 28, 16],
 };
 let token = "";
 try { token = localStorage.getItem("clipToken") || ""; } catch (e) {}
-let source = "url";
+let source = "url", cfg, settings, campaignsData = { campaigns: [], marketplaces: {} }, jobsCache = [];
 const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const tq = () => token ? "?token=" + encodeURIComponent(token) : "";
+const mediaUrl = (id) => `/media/${id}.mp4${tq()}`;
+const coverUrl = (id, v) => `/media/${id}.jpg${tq()}${v ? (token ? "&" : "?") + "v=" + encodeURIComponent(v) : ""}`;
+const mmss = (s) => s >= 60 ? `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")} min` : `${Math.round(s)} s`;
+const fmtTime = (t) => new Date(t * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+const nf = (n) => Intl.NumberFormat([], { notation: n >= 10000 ? "compact" : "standard" }).format(n || 0);
+const setMsg = (el, text, kind = "") => { el.className = "msg" + (kind ? " " + kind : ""); el.textContent = text; };
 
 async function api(path, opts = {}) {
   opts.headers = Object.assign({}, opts.headers || {}, token ? { "X-API-Token": token } : {});
+  if (opts.json !== undefined) { opts.body = JSON.stringify(opts.json); opts.headers["Content-Type"] = "application/json"; delete opts.json; }
   const r = await fetch(path, opts);
   if (r.status === 401 || r.status === 503) { $("auth").classList.remove("hidden"); throw new Error("Needs API token"); }
   const body = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(body.detail ? (typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail)) : r.statusText);
   return body;
 }
-const mediaUrl = (id) => `/media/${id}.mp4${token ? "?token=" + encodeURIComponent(token) : ""}`;
+
+/* ---------- theme & navigation ---------- */
+try { const t = localStorage.getItem("clipTheme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+$("themeBtn").onclick = () => {
+  const dark = document.documentElement.dataset.theme ? document.documentElement.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  document.documentElement.dataset.theme = dark ? "light" : "dark";
+  try { localStorage.setItem("clipTheme", document.documentElement.dataset.theme); } catch (e) {}
+};
+function go(view) {
+  document.querySelectorAll("#nav button[data-go]").forEach((b) => b.classList.toggle("active", b.dataset.go === view));
+  document.querySelectorAll("section.view").forEach((s) => s.classList.toggle("hidden", s.id !== "view-" + view));
+  try { localStorage.setItem("clipView", view); } catch (e) {}
+  if (view === "earn") loadCampaigns();
+  if (view === "publish") initPublishing();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+document.addEventListener("click", (e) => { const g = e.target.closest("[data-go]"); if (g) { e.preventDefault(); go(g.dataset.go); } });
 
 $("saveToken").onclick = () => {
   token = $("token").value.trim();
   try { localStorage.setItem("clipToken", token); } catch (e) {}
-  $("auth").classList.add("hidden");
-  init();
+  $("auth").classList.add("hidden"); init();
 };
 
-document.querySelectorAll(".tabs button").forEach((b) => b.onclick = () => {
-  document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("active", x === b));
+/* ---------- create ---------- */
+document.querySelectorAll("#srcTabs button").forEach((b) => b.onclick = () => {
+  document.querySelectorAll("#srcTabs button").forEach((x) => x.classList.toggle("active", x === b));
   source = b.dataset.src;
   ["url", "upload", "live"].forEach((s) => $("src-" + s).classList.toggle("hidden", s !== source));
-  $("go").textContent = source === "live" ? "Start recording" : "Make clips";
+  $("go").textContent = source === "live" ? "● Start recording" : "✦ Make clips";
+  $("riskBox").classList.add("hidden");
 });
-
 function renderFormats(defaults) {
   $("formats").innerHTML = "";
   for (const [name, [ratio, use, w, h]] of Object.entries(FORMAT_INFO)) {
@@ -244,22 +532,43 @@ function renderFormats(defaults) {
     el.className = "fmt" + (defaults.includes(name) ? " on" : "");
     el.innerHTML = `<input type="checkbox" value="${name}" ${defaults.includes(name) ? "checked" : ""}>
       <span class="shape" style="width:${w}px;height:${h}px"></span>
-      <span><b>${name[0].toUpperCase() + name.slice(1)}</b> ${ratio}<br><small>${use}</small></span>`;
+      <span><b>${name[0].toUpperCase() + name.slice(1)}</b> ${ratio}<small>${use}</small></span>`;
     el.querySelector("input").onchange = (e) => el.classList.toggle("on", e.target.checked);
     $("formats").appendChild(el);
   }
 }
 const chosenFormats = () => [...document.querySelectorAll("#formats input:checked")].map((i) => i.value);
 
+function riskHtml(r, compact) {
+  if (!r) return "";
+  const mon = { likely: "Original is probably monetised", unlikely: "Original probably isn't monetised" }[r.monetised] || "Monetisation unknown";
+  if (compact) return `<span class="badge ${esc(r.risk)}" title="${esc((r.reasons || []).join(" "))}">© ${esc(r.risk)} risk</span>`;
+  return `<div class="risk ${esc(r.risk)}"><div class="inline" style="justify-content:flex-start;gap:8px">
+      <span class="badge ${esc(r.risk)}" style="flex:none">${esc(r.risk)} copyright risk</span><b style="flex:none">${esc(mon)}</b></div>
+    ${r.title ? `<div class="meta" style="margin-top:4px">${esc(r.title)}${r.uploader ? " · " + esc(r.uploader) : ""}</div>` : ""}
+    <ul>${(r.reasons || []).map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
+    <div style="margin-top:8px"><b>What to do</b><ul>${(r.advice || []).map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>
+    <div class="meta" style="margin-top:6px">An estimate from public information, not legal advice.</div></div>`;
+}
+async function checkRights(input) {
+  const url = $(input).value.trim(), box = $("riskBox");
+  box.classList.remove("hidden");
+  if (!url) { box.innerHTML = '<div class="msg err">Paste a link first.</div>'; return; }
+  box.innerHTML = '<div class="msg">Checking who owns this video…</div>';
+  try { box.innerHTML = riskHtml(await api("/api/rights/check", { method: "POST", json: { url } })); }
+  catch (e) { box.innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
+}
+$("checkBtn").onclick = () => checkRights("url");
+$("checkLiveBtn").onclick = () => checkRights("live");
+
 $("go").onclick = async () => {
-  const formats = chosenFormats();
-  const msg = $("formMsg");
-  msg.className = "msg";
-  if (!formats.length) { msg.textContent = "Pick at least one format."; msg.className = "msg err"; return; }
+  const formats = chosenFormats(), msg = $("formMsg");
+  if (!formats.length) return setMsg(msg, "Pick at least one shape.", "err");
   const style = $("capStyle").value;
   const common = { formats, clips: +$("clips").value, clip_seconds: +$("len").value, captions: style !== "none",
-                   caption_style: style, hook: $("hook").checked, progress_bar: $("pbar").checked,
-                   title: $("title").value.trim() || null };
+    caption_style: style, hook: $("hook").checked, progress_bar: $("pbar").checked, jump_cuts: $("cuts").checked,
+    zoom: $("zoom").checked, cover_intro: $("intro").checked, campaign: $("campaign").value || null,
+    title: $("title").value.trim() || null };
   $("go").disabled = true;
   try {
     let res;
@@ -268,208 +577,367 @@ $("go").onclick = async () => {
       if (!f) throw new Error("Choose a file first.");
       const fd = new FormData();
       fd.append("file", f);
-      fd.append("formats", formats.join(","));
-      fd.append("clips", common.clips); fd.append("clip_seconds", common.clip_seconds);
-      fd.append("captions", common.captions);
-      fd.append("caption_style", common.caption_style); fd.append("hook", common.hook); fd.append("progress_bar", common.progress_bar);
-      if (common.title) fd.append("title", common.title);
-      msg.textContent = "Uploading…";
+      for (const [k, v] of Object.entries(common)) if (v !== null) fd.append(k, Array.isArray(v) ? v.join(",") : v);
+      setMsg(msg, "Uploading…");
       res = await api("/upload", { method: "POST", body: fd });
     } else {
       const url = (source === "live" ? $("live") : $("url")).value.trim();
       if (!url) throw new Error("Paste a link first.");
-      res = await api(source === "live" ? "/ingest/live" : "/ingest/url",
-        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url, ...common }) });
+      res = await api(source === "live" ? "/ingest/live" : "/ingest/url", { method: "POST", json: { url, ...common } });
     }
-    msg.textContent = `Started job ${res.job_id}.`;
+    setMsg(msg, `Started. Your clips will appear under Clips (job ${res.job_id}).`, "good");
     $("url").value = ""; $("live").value = ""; $("file").value = ""; $("title").value = "";
-    refresh();
-  } catch (e) { msg.textContent = e.message; msg.className = "msg err"; }
+    refresh(); setTimeout(() => go("clips"), 900);
+  } catch (e) { setMsg(msg, e.message, "err"); }
   $("go").disabled = false;
 };
 
-const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const fmtTime = (t) => new Date(t * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+/* ---------- clips ---------- */
 const LABEL = { awaiting_approval: "ready for review", downloading: "downloading", analyzing: "finding highlights",
-  rendering: "rendering", recording: "recording live", publishing: "publishing", approved: "approved (saved)" };
-const coverUrl = (id) => `/media/${id}.jpg${token ? "?token=" + encodeURIComponent(token) : ""}`;
-const mmss = (s) => s >= 60 ? `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")} min` : `${Math.round(s)} s`;
+  rendering: "rendering", recording: "recording live", publishing: "publishing", approved: "approved (saved)", queued: "queued", scheduled: "scheduled" };
 
 function clipHtml(c) {
-  const fmt = (c.meta && c.meta.format) || "vertical";
-  const hasVideo = ["awaiting_approval", "publishing", "published", "approved"].includes(c.status) || (c.status === "failed" && c.output_path);
   const m = c.meta || {};
-  const dur = c.end_s != null ? `${Math.round(c.start_s)}–${Math.round(c.end_s)}s` : "";
+  const fmt = m.format || "vertical";
+  const hasVideo = ["awaiting_approval", "publishing", "published", "approved", "scheduled"].includes(c.status) || (c.status === "failed" && c.output_path);
+  const editable = ["awaiting_approval", "approved", "failed", "scheduled"].includes(c.status);
   let btns = "";
-  if (c.status === "awaiting_approval") btns += `<button class="btn ok" data-act="approve" data-id="${c.id}">Approve &amp; publish</button><button class="btn bad" data-act="reject" data-id="${c.id}">Reject</button>`;
-  if (c.status === "approved") btns += `<button class="btn ok" data-act="approve" data-id="${c.id}">Publish now</button>`;
+  if (c.status === "awaiting_approval") btns += `<button class="btn solid" data-act="approve" data-id="${c.id}">✓ Approve</button><button class="btn bad" data-act="reject" data-id="${c.id}">Reject</button>`;
+  if (c.status === "approved" || c.status === "scheduled") btns += `<button class="btn ok" data-act="approve" data-id="${c.id}">${c.status === "scheduled" ? "Reschedule" : "Publish"}</button>`;
+  if (editable && c.output_path) btns += `<button class="btn" data-act="edit" data-id="${c.id}">✎ Edit</button>`;
   if (c.status === "failed") btns += `<button class="btn" data-act="retry" data-id="${c.id}">Retry</button>`;
-  if (hasVideo) btns += `<a class="btn" href="${mediaUrl(c.id)}" download>Video</a>`;
-  if (m.cover_path) btns += `<a class="btn" href="${coverUrl(c.id)}" download>Cover</a>`;
-  if (["awaiting_approval", "approved", "failed", "rejected"].includes(c.status)) btns += `<button class="btn" data-act="rerender" data-id="${c.id}">Re-render</button>`;
-  const vir = m.virality != null ? `<span class="vir ${m.virality >= 70 ? "hi" : m.virality >= 45 ? "mid" : "lo"}" title="Virality score">🔥 ${m.virality}</span> ` : "";
+  if (hasVideo) btns += `<a class="btn" href="${mediaUrl(c.id)}" download>⬇ Video</a>`;
+  if (m.cover_path) btns += `<a class="btn" href="${coverUrl(c.id)}" download>⬇ Cover</a>`;
+  if (["awaiting_approval", "approved", "failed", "rejected"].includes(c.status)) btns += `<button class="btn" data-act="rerender" data-id="${c.id}" title="Make it again with a fresh AI title and hook">↻ Remake</button>`;
+  const chips = [];
+  if (m.duration) chips.push(mmss(m.duration));
+  chips.push(fmt);
+  if (m.cuts) chips.push(`✂ ${m.cuts} cuts`);
+  if (m.zooms) chips.push(`🔍 ${m.zooms} zooms`);
+  if (m.caption_words) chips.push(`${m.caption_words} words`);
+  const camp = campaignsData.campaigns.find((x) => x.id === m.campaign);
+  if (camp) chips.push(`$ ${camp.name}`);
   const links = [];
-  if (c.meta && c.meta.youtube_id) links.push(`<a href="https://youtu.be/${esc(c.meta.youtube_id)}" target="_blank" rel="noopener">YouTube</a>`);
-  if (c.meta && c.meta.instagram_id) links.push("Instagram ✓");
-  return `<div class="frame ${fmt}">${hasVideo ? `<video src="${mediaUrl(c.id)}" ${m.cover_path ? `poster="${coverUrl(c.id)}"` : ""} controls preload="none" playsinline></video>` : `<span class="ph">${esc(LABEL[c.status] || c.status)}…</span>`}</div>
+  if (m.youtube_id) links.push(`<a href="https://youtu.be/${esc(m.youtube_id)}" target="_blank" rel="noopener">YouTube</a>`);
+  if (m.instagram_permalink) links.push(`<a href="${esc(m.instagram_permalink)}" target="_blank" rel="noopener">Instagram</a>`); else if (m.instagram_id) links.push("Instagram ✓");
+  if (m.tiktok_id) links.push("TikTok ✓");
+  const views = (m.views_youtube || 0) + (m.views_instagram || 0);
+  const tags = m.llm && m.llm.hashtags ? m.llm.hashtags.join(" ") : "";
+  const sched = c.status === "scheduled" && m.publish_at ? `<div class="meta">Publishes ${esc(new Date(m.publish_at).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit", month: "short", day: "numeric" }))}</div>` : "";
+  return `<div class="frame ${fmt}">${hasVideo ? `<video src="${mediaUrl(c.id)}" ${m.cover_path ? `poster="${coverUrl(c.id, c.updated_at)}"` : ""} controls preload="none" playsinline></video>`
+        : `<span class="ph">${["failed", "rejected"].includes(c.status) ? "" : '<span class="spinner"></span>'}${esc(LABEL[c.status] || c.status)}</span>`}
+      ${m.virality != null ? `<span class="vir ${m.virality >= 70 ? "hi" : ""}" title="Virality score">🔥 ${m.virality}</span>` : ""}</div>
     <div class="info">
       <div class="clip-title">${esc(c.title || "")}</div>
-      ${m.hook_text ? `<div class="hookline">Hook: “${esc(m.hook_text)}”</div>` : ""}
-      ${m.llm && m.llm.hashtags ? `<div class="tags">${esc(m.llm.hashtags.join(" "))}</div>` : ""}
+      ${m.hook_text ? `<div class="hookline">Hook: <b>${esc(m.hook_text)}</b></div>` : ""}
+      ${tags ? `<div class="tags">${esc(tags)}</div>` : ""}
       ${m.caption_error ? `<div class="warn-text">Captions: ${esc(m.caption_error.slice(0, 120))}</div>` : ""}
-      <div>${vir}<span class="status ${c.status}">${esc(LABEL[c.status] || c.status)}</span> <span class="meta">${esc(fmt)} · ${dur}${m.caption_words ? ` · ${m.caption_words} words` : ""}</span></div>
-      ${links.length ? `<div class="meta">${links.join(" · ")}</div>` : ""}
+      <div class="chips"><span class="status ${c.status}">${esc(LABEL[c.status] || c.status)}</span>${chips.map((x) => `<span class="chip">${esc(x)}</span>`).join("")}</div>
+      ${sched}
+      ${links.length ? `<div class="meta">${links.join(" · ")}${views ? ` · 👁 ${nf(views)}` : ""}${m.earnings_est ? ` · <span class="money">$${m.earnings_est.toFixed(2)}</span>` : ""}</div>` : ""}
       ${c.status === "failed" && c.error ? `<div class="err-text">${esc(c.error.split("\n")[0])}</div>` : ""}
       <div class="btns">${btns}</div>
     </div>`;
 }
-
 function jobHead(j) {
   const kind = { url: "Link", upload: "Upload", live: "Live" }[j.source_type] || j.source_type;
   let extra = "";
-  if (j.source_type === "live" && j.status === "recording") extra = `<button class="btn bad" data-act="stop" data-id="${j.id}">Stop recording</button>`;
+  if (j.source_type === "live" && j.status === "recording") extra = `<button class="btn bad" data-act="stop" data-id="${j.id}">■ Stop recording</button>`;
   if (j.status === "failed") extra = `<button class="btn" data-act="retry" data-id="${j.id}">Retry</button>`;
+  const risk = (j.meta || {}).rights;
   return `<div class="job-head"><span class="job-title">${esc(j.title || j.source)}</span>
-    <span class="status ${j.status}">${esc(LABEL[j.status] || j.status)}</span>
+    <span class="status ${j.status}">${esc(LABEL[j.status] || j.status)}</span>${riskHtml(risk, true)}
     <span class="meta">${kind} · ${fmtTime(j.created_at)} · ${j.clips.length} clip${j.clips.length === 1 ? "" : "s"}</span>${extra}</div>
     ${j.status === "failed" && j.error ? `<div class="err-text">${esc(j.error.split("\n")[0])}</div>` : ""}`;
 }
-
-// Keyed rendering: only redraw pieces whose status changed so playing videos aren't reset.
 const seen = {};
 function renderJobs(jobs) {
-  const root = $("jobs");
-  if (!jobs.length) { root.innerHTML = '<div class="empty">No jobs yet. Paste a link above.</div>'; return; }
+  const root = $("jobs"), filter = $("filter").value;
+  const shown = filter ? jobs.filter((j) => j.clips.some((c) => c.status === filter)) : jobs;
+  if (!shown.length) { root.innerHTML = `<div class="empty">${filter ? "Nothing here." : "No clips yet. Start on the Create page."}</div>`; for (const k in seen) delete seen[k]; return; }
   root.querySelector(".empty")?.remove();
-  jobs.forEach((j, idx) => {
+  const ids = new Set(shown.map((j) => "job-" + j.id));
+  [...root.children].forEach((el) => { if (!ids.has(el.id)) { el.remove(); } });
+  shown.forEach((j, idx) => {
     let el = document.getElementById("job-" + j.id);
     if (!el) {
       el = document.createElement("div"); el.className = "job"; el.id = "job-" + j.id;
       el.innerHTML = '<div class="head"></div><div class="clips"></div>';
       root.insertBefore(el, root.children[idx] || null);
+      delete seen["h" + j.id];
     }
-    const headKey = j.status + j.clips.length + (j.error || "");
+    const headKey = j.status + j.clips.length + (j.error || "") + JSON.stringify((j.meta || {}).rights || "");
     if (seen["h" + j.id] !== headKey) { el.querySelector(".head").innerHTML = jobHead(j); seen["h" + j.id] = headKey; }
     const grid = el.querySelector(".clips");
-    j.clips.forEach((c) => {
+    j.clips.filter((c) => !filter || c.status === filter).forEach((c) => {
       let ce = document.getElementById("clip-" + c.id);
-      if (!ce) { ce = document.createElement("div"); ce.className = "clip"; ce.id = "clip-" + c.id; grid.appendChild(ce); }
-      const key = c.status + (c.title || "") + JSON.stringify(c.meta || {}) + (c.error || "");
+      if (!ce) { ce = document.createElement("div"); ce.className = "clip"; ce.id = "clip-" + c.id; grid.appendChild(ce); delete seen[c.id]; }
+      const key = c.status + (c.title || "") + JSON.stringify(c.meta || {}) + (c.error || "") + campaignsData.campaigns.length;
       if (seen[c.id] !== key) { ce.innerHTML = clipHtml(c); seen[c.id] = key; }
     });
   });
+}
+$("filter").onchange = () => { $("jobs").innerHTML = ""; for (const k in seen) delete seen[k]; renderJobs(jobsCache); };
+
+function heroStats(jobs) {
+  const clips = jobs.flatMap((j) => j.clips);
+  const n = (s) => clips.filter((c) => c.status === s).length;
+  const views = clips.reduce((a, c) => a + ((c.meta || {}).views_youtube || 0) + ((c.meta || {}).views_instagram || 0), 0);
+  $("heroStats").innerHTML = [[clips.length, "clips made"], [n("awaiting_approval"), "ready for review"], [n("published"), "published"], [nf(views), "views"]]
+    .map(([v, l]) => `<div class="stat"><b>${v}</b><span>${l}</span></div>`).join("");
+  const rc = n("awaiting_approval");
+  $("reviewCount").textContent = rc; $("reviewCount").classList.toggle("hidden", !rc);
 }
 
 document.addEventListener("click", async (e) => {
   const b = e.target.closest("button[data-act]");
   if (!b) return;
   const { act, id } = b.dataset;
+  if (act === "edit") return openEdit(id);
+  if (act === "approve") return openSchedule(id);
   if (act === "reject" && !confirm("Delete this clip?")) return;
+  if (act === "delcamp") { if (!confirm("Remove this campaign?")) return; await api(`/api/campaigns/${id}`, { method: "DELETE" }).catch((err) => alert(err.message)); return loadCampaigns(); }
+  if (act === "copy") { try { await navigator.clipboard.writeText(b.dataset.url); b.textContent = "Copied"; } catch (err) {} return; }
   b.disabled = true;
   const path = act === "stop" ? `/ingest/live/${id}/stop` : `/jobs/${id}/${act}`;
-  try { await api(path, { method: "POST" }); } catch (err) { alert(err.message); }
+  const opts = act === "rerender" ? { method: "POST", json: { new_ai_text: true } } : { method: "POST" };
+  try { await api(path, opts); } catch (err) { alert(err.message); }
   refresh();
 });
 
 async function refresh() {
-  try { renderJobs(await api("/api/jobs")); } catch (e) {}
+  try { jobsCache = await api("/api/jobs"); renderJobs(jobsCache); heroStats(jobsCache); } catch (e) {}
 }
+const findClip = (id) => jobsCache.flatMap((j) => j.clips).find((c) => c.id === id);
 
-const DEFAULT_URL = { ollama: "http://localhost:11434", openai: "http://localhost:1234/v1", none: "" };
-function aiVisibility() {
-  const p = $("llmProvider").value;
-  ["llmUrl", "llmModel", "llmRefresh", "llmTitles", "llmRank", "testAi"].forEach((id) => $(id).disabled = p === "none");
-  $("keyBox").classList.toggle("hidden", p !== "openai");
+/* ---------- edit dialog ---------- */
+let editing = null;
+function optButtons(el, opts, input) {
+  el.innerHTML = (opts || []).map((o) => `<button type="button">${esc(o)}</button>`).join("");
+  el.querySelectorAll("button").forEach((b, i) => b.onclick = () => { $(input).value = opts[i]; });
 }
-async function loadModels(selected) {
-  const p = $("llmProvider").value, sel = $("llmModel"), msg = $("aiMsg");
-  sel.innerHTML = selected ? `<option>${esc(selected)}</option>` : "";
+function openEdit(id) {
+  const c = findClip(id); if (!c) return;
+  editing = c;
+  const m = c.meta || {}, md = m.llm || {};
+  $("edId").textContent = `${m.format || ""} · ${mmss(m.duration || 0)}`;
+  $("edCover").src = m.cover_path ? coverUrl(c.id, c.updated_at) : "";
+  $("edTitle").value = c.title || ""; optButtons($("edTitleOpts"), (md.title_options || []).filter((t) => t !== c.title), "edTitle");
+  $("edHook").value = m.hook_text || ""; optButtons($("edHookOpts"), (md.hook_options || []).filter((h) => h !== m.hook_text), "edHook");
+  $("edCaption").value = m.caption_custom != null ? m.caption_custom : (md.caption || "");
+  $("edCoverText").value = m.cover_text || "";
+  const dur = Math.max(1, (c.end_s || 0) - (c.start_s || 0));
+  Object.assign($("edTime"), { max: dur, value: m.cover_time != null ? m.cover_time : 0 });
+  $("edTime").dataset.touched = "";
+  $("edTimeOut").textContent = m.cover_time != null ? `${(+m.cover_time).toFixed(1)} s` : "auto";
+  $("edImg").value = ""; $("edReset").checked = false; setMsg($("edMsg"), "");
+  $("editDlg").showModal();
+}
+$("edTime").oninput = () => { $("edTime").dataset.touched = "1"; $("edTimeOut").textContent = `${(+$("edTime").value).toFixed(1)} s`; };
+$("edCancel").onclick = () => $("editDlg").close();
+$("edSave").onclick = async () => {
+  const c = editing, m = c.meta || {}, md = m.llm || {}, msg = $("edMsg");
+  const body = {};
+  if ($("edTitle").value.trim() && $("edTitle").value.trim() !== c.title) body.title = $("edTitle").value.trim();
+  if ($("edHook").value.trim() !== (m.hook_text || "")) body.hook = $("edHook").value.trim();
+  const cap = $("edCaption").value.trim();
+  if (cap !== (m.caption_custom != null ? m.caption_custom : (md.caption || ""))) body.caption = cap;
+  if ($("edCoverText").value.trim() !== (m.cover_text || "")) body.cover_text = $("edCoverText").value.trim();
+  if ($("edTime").dataset.touched) body.cover_time = +$("edTime").value;
+  if ($("edReset").checked) body.cover_reset = true;
+  $("edSave").disabled = true;
+  try {
+    let res = null;
+    if (Object.keys(body).length) res = await api(`/jobs/${c.id}`, { method: "PATCH", json: body });
+    const f = $("edImg").files[0];
+    if (f) { const fd = new FormData(); fd.append("file", f); res = await api(`/jobs/${c.id}/cover`, { method: "POST", body: fd }); }
+    if (!res) { setMsg(msg, "Nothing changed."); $("edSave").disabled = false; return; }
+    setMsg(msg, res.result, "good");
+    setTimeout(() => $("editDlg").close(), 1100);
+    refresh();
+  } catch (e) { setMsg(msg, e.message, "err"); }
+  $("edSave").disabled = false;
+};
+
+/* ---------- schedule dialog ---------- */
+let scheduling = null;
+const localInput = (d) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+function openSchedule(id) {
+  scheduling = id;
+  const soon = new Date(Date.now() + 3600e3); soon.setMinutes(0, 0, 0);
+  $("schedAt").value = localInput(soon); setMsg($("schedMsg"), "");
+  const quick = [["In 1 hour", 1], ["Tonight 7 PM", "19"], ["Tomorrow 12 PM", "t12"], ["Tomorrow 7 PM", "t19"]];
+  $("schedQuick").innerHTML = quick.map(([l]) => `<button type="button">${l}</button>`).join("");
+  $("schedQuick").querySelectorAll("button").forEach((b, i) => b.onclick = () => {
+    const v = quick[i][1], d = new Date();
+    if (v === 1) d.setHours(d.getHours() + 1, d.getMinutes(), 0, 0);
+    else { if (String(v).startsWith("t")) d.setDate(d.getDate() + 1); d.setHours(+String(v).replace("t", ""), 0, 0, 0); }
+    $("schedAt").value = localInput(d);
+  });
+  $("schedDlg").showModal();
+}
+$("schedCancel").onclick = () => $("schedDlg").close();
+async function doApprove(at) {
+  try {
+    const r = await api(`/jobs/${scheduling}/approve`, { method: "POST", json: at ? { publish_at: new Date(at).toISOString() } : {} });
+    setMsg($("schedMsg"), r.result, "good"); refresh(); setTimeout(() => $("schedDlg").close(), 1400);
+  } catch (e) { setMsg($("schedMsg"), e.message, "err"); }
+}
+$("schedNow").onclick = () => doApprove(null);
+$("schedLater").onclick = () => { if (!$("schedAt").value) return setMsg($("schedMsg"), "Pick a time.", "err"); doApprove($("schedAt").value); };
+
+/* ---------- earn ---------- */
+async function loadCampaigns() {
+  try { campaignsData = await api("/api/campaigns"); } catch (e) { return; }
+  const mk = campaignsData.marketplaces;
+  $("markets").innerHTML = Object.entries(mk).filter(([, m]) => m.url).map(([, m]) =>
+    `<div class="market"><b>${esc(m.name)}</b><p>${esc(m.how)}</p><a href="${esc(m.url)}" target="_blank" rel="noopener">Open ${esc(m.url.replace(/^https?:\/\/(www\.)?/, ""))} ↗</a></div>`).join("");
+  $("cMarket").innerHTML = Object.entries(mk).map(([k, m]) => `<option value="${k}">${esc(m.name)}</option>`).join("");
+  const cs = campaignsData.campaigns;
+  $("campRows").innerHTML = cs.length ? cs.map((c) => `<tr>
+      <td><b>${esc(c.name)}</b><div class="meta">${esc((mk[c.marketplace] || {}).name || "")}${c.url ? ` · <a href="${esc(c.url)}" target="_blank" rel="noopener">page ↗</a>` : ""}</div>
+        <div class="meta">${esc([c.hashtags, c.mention].filter(Boolean).join(" "))}</div></td>
+      <td>$${(+c.cpm || 0).toFixed(2)}/1K</td><td>${c.clips}</td><td>${nf(c.views)}</td><td class="money">$${(+c.earnings_est || 0).toFixed(2)}</td>
+      <td>${(c.links || []).map((l) => `<div>${esc(l.platform)}: ${/^https?:/.test(l.url) ? `<a href="${esc(l.url)}" target="_blank" rel="noopener">open</a> <button class="btn" data-act="copy" data-url="${esc(l.url)}" type="button">Copy</button>` : esc(l.url)}</div>`).join("") || '<span class="meta">Nothing published yet</span>'}</td>
+      <td><button class="btn bad" data-act="delcamp" data-id="${c.id}" type="button">Remove</button></td></tr>`).join("")
+    : '<tr><td colspan="7" class="meta">No campaigns yet. Join one on a marketplace, then add it below.</td></tr>';
+  const tot = cs.reduce((a, c) => ({ v: a.v + (c.views || 0), e: a.e + (+c.earnings_est || 0), n: a.n + (c.clips || 0) }), { v: 0, e: 0, n: 0 });
+  $("earnStats").innerHTML = [[cs.length, "campaigns"], [tot.n, "clips posted"], [nf(tot.v), "views"], ["$" + tot.e.toFixed(2), "estimated earnings"]]
+    .map(([v, l]) => `<div class="stat"><b>${v}</b><span>${l}</span></div>`).join("");
+  const sel = $("campaign"), cur = sel.value;
+  sel.innerHTML = '<option value="">None</option>' + cs.filter((c) => c.active !== false).map((c) => `<option value="${c.id}">${esc(c.name)} ($${(+c.cpm || 0).toFixed(2)}/1K)</option>`).join("");
+  sel.value = cur;
+}
+$("cSave").onclick = async () => {
+  const body = { name: $("cName").value.trim(), marketplace: $("cMarket").value, cpm: +$("cCpm").value || 0,
+    url: $("cUrl").value.trim(), hashtags: $("cTags").value.trim(), mention: $("cMention").value.trim() };
+  try {
+    await api("/api/campaigns", { method: "POST", json: body });
+    ["cName", "cCpm", "cUrl", "cTags", "cMention"].forEach((i) => $(i).value = "");
+    setMsg($("cMsg"), "Added. Pick it on the Create page when you make clips for it.", "good"); loadCampaigns();
+  } catch (e) { setMsg($("cMsg"), e.message, "err"); }
+};
+$("statsBtn").onclick = async () => {
+  setMsg($("earnMsg"), "Reading views…");
+  try {
+    const r = await api("/api/stats/refresh", { method: "POST" });
+    setMsg($("earnMsg"), `${r.clips} published clips · ${nf(r.views)} views · ~$${r.earnings_est.toFixed(2)}` + (r.errors.length ? ` · ${r.errors.join("; ")}` : ""), r.errors.length ? "err" : "good");
+    loadCampaigns(); refresh();
+  } catch (e) { setMsg($("earnMsg"), e.message, "err"); }
+};
+
+/* ---------- AI & brand ---------- */
+let providers = {};
+function aiVisibility() {
+  const p = $("llmProvider").value, info = providers[p] || {};
+  ["llmUrl", "llmModel", "llmRefresh", "llmTitles", "llmRank", "testAi"].forEach((id) => $(id).disabled = p === "none");
+  $("keyBox").classList.toggle("hidden", p === "none" || (info.local && p === "ollama"));
+  $("keyLink").classList.toggle("hidden", !info.key_url); if (info.key_url) $("keyLink").href = info.key_url;
+  $("llmKey").placeholder = (settings && settings.llm_keys_set || []).includes(p) ? "saved (leave empty to keep)" : (info.local ? "only if your server needs one" : "paste your API key");
+}
+async function loadModels() {
+  const p = $("llmProvider").value, msg = $("aiMsg");
   if (p === "none") return;
-  msg.className = "msg"; msg.textContent = "Looking for models…";
+  const fallback = (providers[p] || {}).models || [];
+  $("modelList").innerHTML = fallback.map((m) => `<option value="${esc(m)}">`).join("");
+  setMsg(msg, "Looking for models…");
   try {
     const r = await api(`/api/llm/models?provider=${p}&base_url=${encodeURIComponent($("llmUrl").value.trim())}`);
-    const models = r.models.length ? r.models : [];
-    sel.innerHTML = models.map((m) => `<option ${m === selected ? "selected" : ""}>${esc(m)}</option>`).join("")
-      || '<option value="">No models found</option>';
-    if (selected && !models.includes(selected)) sel.insertAdjacentHTML("afterbegin", `<option selected>${esc(selected)}</option>`);
-    msg.textContent = models.length ? `${models.length} model${models.length === 1 ? "" : "s"} found.` :
-      (p === "ollama" ? "Ollama is running but has no models. Run: ollama pull llama3.2" : "No models found.");
-  } catch (e) { msg.className = "msg err"; msg.textContent = e.message; }
+    const models = [...new Set([...r.models, ...fallback])];
+    $("modelList").innerHTML = models.map((m) => `<option value="${esc(m)}">`).join("");
+    if (!$("llmModel").value && models.length) $("llmModel").value = models[0];
+    setMsg(msg, models.length ? `${models.length} model${models.length === 1 ? "" : "s"} available. Click the Model box to pick.` :
+      (p === "ollama" ? "Ollama is running but has no models. Run: ollama pull llama3.1:8b" : "No models found."));
+  } catch (e) { setMsg(msg, (providers[p] || {}).local ? e.message : "Save your API key first, then press ↻ to list models. " + (fallback.length ? "Suggested models are in the list." : ""), "err"); }
 }
 async function initAi() {
-  const st = await api("/api/settings");
-  $("llmProvider").value = st.llm_provider;
-  $("llmUrl").value = st.llm_base_url || DEFAULT_URL[st.llm_provider] || "";
-  $("llmTitles").checked = st.llm_titles; $("llmRank").checked = st.llm_rank;
-  $("whisperModel").innerHTML = st.whisper_models.map((m) => `<option ${m === st.whisper_model ? "selected" : ""}>${m}</option>`).join("");
-  $("aiSummary").textContent = st.llm_provider === "none" ? "No LLM" : `${st.llm_provider} · ${st.llm_model || "no model"}`;
+  settings = await api("/api/settings");
+  providers = settings.providers || {};
+  $("llmProvider").innerHTML = ["none", "ollama", "lmstudio", "openai"].concat(Object.keys(providers).filter((k) => !["none", "ollama", "lmstudio", "openai"].includes(k)))
+    .filter((k) => providers[k]).map((k) => `<option value="${k}">${esc(providers[k].label)}${k !== "none" && providers[k].local ? "" : ""}</option>`).join("");
+  $("llmProvider").value = settings.llm_provider;
+  $("llmUrl").value = settings.llm_base_url || (providers[settings.llm_provider] || {}).url || "";
+  $("llmModel").value = settings.llm_model || "";
+  $("llmTitles").checked = settings.llm_titles; $("llmRank").checked = settings.llm_rank;
+  $("whisperModel").innerHTML = settings.whisper_models.map((m) => `<option ${m === settings.whisper_model ? "selected" : ""}>${m}</option>`).join("");
+  $("watermark").value = settings.watermark || ""; $("defTags").value = settings.default_hashtags || "";
+  $("aiSummary").textContent = settings.llm_provider === "none" ? "No LLM" : `${(providers[settings.llm_provider] || {}).label || settings.llm_provider} · ${settings.llm_model || "no model"}`;
   aiVisibility();
-  if (st.llm_provider !== "none") loadModels(st.llm_model);
+  if (settings.llm_provider !== "none") loadModels();
 }
-$("llmProvider").onchange = () => {
-  $("llmUrl").value = DEFAULT_URL[$("llmProvider").value]; aiVisibility(); loadModels("");
-};
-$("llmRefresh").onclick = () => loadModels($("llmModel").value);
+$("llmProvider").onchange = () => { $("llmUrl").value = (providers[$("llmProvider").value] || {}).url || ""; $("llmModel").value = ""; aiVisibility(); loadModels(); };
+$("llmRefresh").onclick = () => loadModels();
 $("saveAi").onclick = async () => {
   const body = { llm_provider: $("llmProvider").value, llm_base_url: $("llmUrl").value.trim(),
-    llm_model: $("llmModel").value || "", llm_titles: $("llmTitles").checked, llm_rank: $("llmRank").checked,
-    whisper_model: $("whisperModel").value };
-  if ($("llmKey").value) body.llm_api_key = $("llmKey").value;
-  const msg = $("aiMsg");
+    llm_model: $("llmModel").value.trim(), llm_titles: $("llmTitles").checked, llm_rank: $("llmRank").checked, whisper_model: $("whisperModel").value };
+  if ($("llmKey").value) body.llm_api_key = $("llmKey").value.trim();
   try {
-    if (body.llm_provider !== "none" && !body.llm_model) throw new Error("Pick a model first.");
-    const st = await api("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (body.llm_provider !== "none" && !body.llm_model) throw new Error("Pick or type a model first.");
+    await api("/api/settings", { method: "PUT", json: body });
     $("llmKey").value = "";
-    msg.className = "msg"; msg.textContent = "Saved. New clips will use these settings.";
-    $("aiSummary").textContent = st.llm_provider === "none" ? "No LLM" : `${st.llm_provider} · ${st.llm_model}`;
-    initPills();
-  } catch (e) { msg.className = "msg err"; msg.textContent = e.message; }
+    setMsg($("aiMsg"), "Saved. New clips will use this model. Press Test to try it.", "good");
+    initAi(); initPills();
+  } catch (e) { setMsg($("aiMsg"), e.message, "err"); }
 };
 $("testAi").onclick = async () => {
-  const msg = $("aiMsg");
-  msg.className = "msg"; msg.textContent = "Asking the model (save first if you changed anything)…";
+  setMsg($("aiMsg"), "Asking the model (save first if you changed anything)…");
   try {
     const r = await api("/api/llm/test", { method: "POST" });
-    msg.textContent = `Works. Sample title: “${r.sample.title}” ${r.sample.hashtags.join(" ")}`;
-  } catch (e) { msg.className = "msg err"; msg.textContent = e.message; }
+    setMsg($("aiMsg"), `Works. Hook: “${r.sample.hook}” · Title: “${r.sample.title}” ${r.sample.hashtags.join(" ")}`, "good");
+  } catch (e) { setMsg($("aiMsg"), e.message, "err"); }
 };
+$("saveBrand").onclick = async () => {
+  try {
+    await api("/api/settings", { method: "PUT", json: { watermark: $("watermark").value.trim(), default_hashtags: $("defTags").value.trim() } });
+    setMsg($("brandMsg"), "Saved. New and remade clips will use it.", "good");
+  } catch (e) { setMsg($("brandMsg"), e.message, "err"); }
+};
+
 async function initPills() {
   const c = await api("/api/config"), st = await api("/api/settings");
-  $("pills").innerHTML = [["Telegram", c.telegram], ["YouTube", c.youtube], ["Instagram", c.instagram],
-    [st.llm_provider === "none" ? "LLM" : `LLM: ${st.llm_model}`, st.llm_provider !== "none" && !!st.llm_model]]
-    .map(([n, on]) => `<span class="pill ${on ? "on" : ""}">${esc(n)} ${on ? "✓" : "not set"}</span>`).join("");
+  const llmOn = st.llm_provider !== "none" && !!st.llm_model;
+  $("pills").innerHTML = [["Telegram", c.telegram], ["YouTube", c.youtube], ["Instagram", c.instagram], ["TikTok", c.tiktok],
+    [llmOn ? st.llm_model : "No LLM", llmOn]].map(([n, on]) => `<span class="pill ${on ? "on" : ""}">${esc(n)}</span>`).join("");
 }
 
+/* ---------- publishing ---------- */
 async function initPublishing() {
   const p = await api("/api/publishing");
-  $("ytState").innerHTML = p.youtube ? '<span class="ok-text">✓ YouTube connected</span>' :
-    (p.youtube_client_uploaded ? "Client JSON uploaded. Press Connect YouTube." : "Not connected.");
-  $("igState").innerHTML = p.instagram ? `<span class="ok-text">✓ Instagram connected</span> (account ${esc(p.instagram_user_id)})` : "Not connected.";
-  $("pubSummary").textContent = [p.youtube && "YouTube", p.instagram && "Instagram"].filter(Boolean).join(" + ") || "Not connected";
-  $("ytConnect").href = "/auth/youtube" + (token ? "?token=" + encodeURIComponent(token) : "");
-  $("ytConnect").target = "_blank";
+  $("ytState").innerHTML = p.youtube ? '<span class="ok-text">✓ Connected</span>' : (p.youtube_client_uploaded ? "Client JSON uploaded. Press Connect YouTube." : "Not connected.");
+  $("igState").innerHTML = p.instagram ? `<span class="ok-text">✓ Connected</span> (account ${esc(p.instagram_user_id)})` : "Not connected.";
+  $("ttState").innerHTML = p.tiktok ? `<span class="ok-text">✓ Connected</span> (posts as ${esc(p.tiktok_privacy)})` : "Not connected.";
+  $("pubSummary").textContent = [p.youtube && "YouTube", p.instagram && "Instagram", p.tiktok && "TikTok"].filter(Boolean).join(" + ") || "Nothing connected yet";
+  $("ytConnect").href = "/auth/youtube" + tq(); $("ytConnect").target = "_blank";
 }
 $("ytUpload").onclick = async () => {
   const f = $("ytFile").files[0], msg = $("pubMsg");
-  if (!f) { msg.className = "msg err"; msg.textContent = "Choose the JSON file first."; return; }
+  if (!f) return setMsg(msg, "Choose the JSON file first.", "err");
   const fd = new FormData(); fd.append("file", f);
-  try { await api("/api/publishing/youtube/client", { method: "POST", body: fd }); msg.className = "msg"; msg.textContent = "Saved. Now press Connect YouTube."; initPublishing(); }
-  catch (e) { msg.className = "msg err"; msg.textContent = e.message; }
+  try { await api("/api/publishing/youtube/client", { method: "POST", body: fd }); setMsg(msg, "Saved. Now press Connect YouTube.", "good"); initPublishing(); }
+  catch (e) { setMsg(msg, e.message, "err"); }
 };
 $("igSave").onclick = async () => {
   const msg = $("pubMsg");
-  const body = { user_id: $("igUser").value.trim(), access_token: $("igToken").value.trim(),
-                 app_id: $("igAppId").value.trim(), app_secret: $("igAppSecret").value.trim() };
-  if (!body.user_id || !body.access_token) { msg.className = "msg err"; msg.textContent = "Account ID and token are required."; return; }
+  const body = { user_id: $("igUser").value.trim(), access_token: $("igToken").value.trim(), app_id: $("igAppId").value.trim(), app_secret: $("igAppSecret").value.trim() };
+  if (!body.user_id || !body.access_token) return setMsg(msg, "Instagram account ID and token are required.", "err");
   try {
-    const r = await api("/api/publishing/instagram", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    msg.className = "msg"; msg.textContent = `Connected @${r.username} (${r.account_type}).`;
+    const r = await api("/api/publishing/instagram", { method: "POST", json: body });
+    setMsg(msg, `Instagram connected: @${r.username} (${r.account_type}).`, "good");
     $("igToken").value = ""; $("igAppSecret").value = ""; initPublishing(); initPills();
-  } catch (e) { msg.className = "msg err"; msg.textContent = e.message; }
+  } catch (e) { setMsg(msg, e.message, "err"); }
+};
+$("ttSave").onclick = async () => {
+  const msg = $("pubMsg");
+  const body = { client_key: $("ttKey").value.trim(), client_secret: $("ttSecret").value.trim(), access_token: $("ttToken").value.trim(), refresh_token: $("ttRefresh").value.trim() };
+  if (!body.client_key || !body.access_token) return setMsg(msg, "TikTok client key and access token are required.", "err");
+  try {
+    const r = await api("/api/publishing/tiktok", { method: "POST", json: body });
+    setMsg(msg, `TikTok connected${r.display_name ? ": " + r.display_name : ""}.`, "good");
+    ["ttSecret", "ttToken", "ttRefresh"].forEach((i) => $(i).value = ""); initPublishing(); initPills();
+  } catch (e) { setMsg(msg, e.message, "err"); }
 };
 window.addEventListener("focus", () => { if (cfg) { initPublishing(); initPills(); } });
 
-let cfg;
 async function init() {
   try { cfg = await api("/api/config"); } catch (e) { return; }
   renderFormats(cfg.default_formats);
@@ -479,10 +947,10 @@ async function init() {
   $("len").oninput = lenUpd; lenUpd();
   $("capStyle").value = cfg.captions ? cfg.caption_style : "none";
   $("hook").checked = cfg.hook; $("pbar").checked = cfg.progress_bar;
-  initPublishing();
-  initPills();
-  initAi();
-  refresh();
+  $("cuts").checked = cfg.jump_cuts; $("zoom").checked = cfg.zoom; $("intro").checked = cfg.cover_intro;
+  initPublishing(); initPills(); initAi(); loadCampaigns(); refresh();
+  let v = "create"; try { v = localStorage.getItem("clipView") || "create"; } catch (e) {}
+  go(v);
 }
 init();
 setInterval(refresh, 3000);
