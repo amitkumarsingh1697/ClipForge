@@ -109,7 +109,8 @@ def write_ass(words: list[Word], dst: Path, width: int = 1080, height: int = 192
               hook: str | None = None, hook_seconds: float = 3.0,
               keywords: set[str] | None = None, highlight: str = "#FFE600",
               keyword_color: str = "#3DFF7A", animate_hook: bool = True,
-              hook_scale: float = 1.0, watermark: str | None = None) -> Path | None:
+              hook_scale: float = 1.0, watermark: str | None = None,
+              labels: list[tuple[float, float, str]] | None = None) -> Path | None:
     """Short-form captions + optional hook title. Returns None if there is nothing to draw.
 
     Styles (what viral clip tools use):
@@ -123,7 +124,7 @@ def write_ass(words: list[Word], dst: Path, width: int = 1080, height: int = 192
     style = style if style in CAPTION_STYLES else "pop"
     if style == "none":
         words = []
-    if not words and not hook and not watermark:
+    if not words and not hook and not watermark and not labels:
         return None
     vertical = height > width * 1.5
     base = int(min(width, height) * (0.065 if style == "minimal" else 0.09))
@@ -143,6 +144,7 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
 Style: Cap,{font},{base},&H00FFFFFF,&H0000FFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,7,3,2,60,60,{margin_v},1
 Style: Min,{font},{base},&H00FFFFFF,&H00FFFFFF,&H00000000,&H99000000,-1,0,0,0,100,100,0,0,3,14,0,2,80,80,{margin_v},1
 Style: Mark,{font},{int(min(width, height) * 0.036)},&H50FFFFFF,&H50FFFFFF,&H90000000,&H00000000,-1,0,0,0,100,100,0,0,1,2,0,9,40,40,{int(height * 0.04)},1
+Style: Tag,{font},{int(min(width, height) * 0.06)},&H00000000,&H00000000,&H0000E6FF,&H0000E6FF,-1,0,0,0,100,100,0,0,3,16,0,8,70,70,{int(height * (0.12 if vertical else 0.06))},1
 Style: Hook,{font},{hook_size},&H00000000,&H00000000,&H00FFFFFF,&H00FFFFFF,-1,0,0,0,100,100,0,0,3,22,0,8,70,70,{int(height * (0.12 if vertical else 0.06))},1
 
 [Events]
@@ -155,6 +157,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         h = _wrap_hook(_esc(hook), int((18 if vertical else 32) / max(hook_scale, 0.5)) + 2)
         anim = "{\\fad(150,250)\\t(0,200,\\fscx105\\fscy105)\\t(200,400,\\fscx100\\fscy100)}" if animate_hook else ""
         lines.append(f"Dialogue: 1,{_ts(0)},{_ts(hook_seconds)},Hook,,0,0,0,,{anim}{h}")
+    for a, b, text in labels or []:
+        lines.append(f"Dialogue: 3,{_ts(a)},{_ts(b)},Tag,,0,0,0,,{{\\fad(80,120)}}{_esc(text)}")
     for i in range(0, len(words), words_per_line):
         group = words[i:i + words_per_line]
         g_start = group[0].start

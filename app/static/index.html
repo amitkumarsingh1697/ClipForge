@@ -156,6 +156,28 @@ button.primary:disabled { opacity: .5; cursor: default; box-shadow: none; }
 .warn-text { color: var(--warn); font-size: 12px; }
 .err-text { color: var(--bad); font-size: 12px; overflow-wrap: anywhere; max-height: 4.5em; overflow: hidden; }
 .clip .btns { display: flex; gap: 6px; flex-wrap: wrap; }
+/* step-by-step progress */
+.steps-box { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; background: var(--panel); font-size: 12.5px; }
+.steps-box > summary { cursor: pointer; font-weight: 600; list-style: none; display: flex; align-items: center; gap: 8px; }
+.steps-box > summary::-webkit-details-marker { display: none; }
+.steps-box .sum-meta { color: var(--muted); font-weight: 400; margin-left: auto; }
+.stp { display: grid; grid-template-columns: 20px 1fr auto; gap: 2px 8px; align-items: start; padding: 5px 0; border-top: 1px dashed var(--line); }
+.stp:first-of-type { border-top: 0; }
+.stp .ic { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700; margin-top: 1px; }
+.stp.pending .ic { border: 2px solid var(--line); } .stp.pending .lb { color: var(--muted); }
+.stp.active .ic { border: 2px solid var(--brand2); border-top-color: transparent; animation: spin 0.9s linear infinite; }
+.stp.active .lb { font-weight: 650; }
+.stp.done .ic { background: var(--ok); color: #fff; } .stp.skipped .ic { background: var(--chip); color: var(--muted); }
+.stp.warn .ic { background: #eab308; color: #111; } .stp.failed .ic { background: var(--bad); color: #fff; }
+.stp .tm { color: var(--muted); font-variant-numeric: tabular-nums; }
+.stp .dt { grid-column: 2 / 4; color: var(--muted); overflow-wrap: anywhere; }
+.stp.warn .dt { color: #b45309; } .stp.failed .dt { color: var(--bad); }
+.stp .bar { grid-column: 2 / 4; height: 6px; border-radius: 99px; background: var(--chip); overflow: hidden; margin-top: 3px; }
+.stp .bar i { display: block; height: 100%; background: var(--grad); transition: width .4s; }
+.overall { height: 6px; border-radius: 99px; background: var(--chip); overflow: hidden; margin: 8px 0 4px; }
+.overall i { display: block; height: 100%; background: var(--grad); transition: width .4s; }
+.vis-warn { border: 1px solid color-mix(in srgb, #eab308 60%, var(--line)); background: color-mix(in srgb, #eab308 12%, transparent); border-radius: 12px; padding: 10px 12px; font-size: 13px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+pre.post { white-space: pre-wrap; font: 12.5px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin: 4px 0 0; max-height: 260px; overflow: auto; }
 .chips { display: flex; gap: 5px; flex-wrap: wrap; }
 .chip { font-size: 11px; padding: 2px 7px; border-radius: 6px; background: var(--chip); color: var(--muted); }
 
@@ -284,6 +306,9 @@ dialog::backdrop { background: rgba(10, 5, 25, .55); backdrop-filter: blur(3px);
           <label class="tg"><input type="checkbox" id="zoom"><div><b>Zoom punch-ins</b><span>Quick zooms on key words</span></div></label>
           <label class="tg"><input type="checkbox" id="pbar"><div><b>Progress bar</b><span>Keeps people watching to the end</span></div></label>
           <label class="tg"><input type="checkbox" id="intro"><div><b>Cover as first frame</b><span>Every platform shows your cover as the thumbnail</span></div></label>
+          <label class="tg"><input type="checkbox" id="tease"><div><b>Payoff tease</b><span>Opens with 2 s of the best moment, then plays the clip ("wait for it")</span></div></label>
+          <label class="tg"><input type="checkbox" id="replay"><div><b>Slow-mo replay</b><span>Ends on a zoomed replay of the payoff that loops back to the start</span></div></label>
+          <label class="tg"><input type="checkbox" id="beat"><div><b>Background beat</b><span id="beatInfo">Royalty-free beat, ducked under speech</span></div></label>
         </div>
         <div class="actions">
           <button class="primary" id="go">✦ Make clips</button>
@@ -297,6 +322,7 @@ dialog::backdrop { background: rgba(10, 5, 25, .55); backdrop-filter: blur(3px);
       <div class="card">
         <div class="card-h"><h2>Your clips</h2><span class="sub">Newest first. Edit the title, hook or cover before you approve.</span>
           <div class="right"><select id="filter" style="width:auto"><option value="">All</option><option value="awaiting_approval">Ready for review</option><option value="scheduled">Scheduled</option><option value="published">Published</option><option value="failed">Failed</option></select></div></div>
+        <div id="visBox" class="vis-warn hidden"></div>
         <div id="jobs"><div class="empty">No clips yet. Start on the Create page.</div></div>
       </div>
     </section>
@@ -352,7 +378,7 @@ dialog::backdrop { background: rgba(10, 5, 25, .55); backdrop-filter: blur(3px);
               <button class="btn" id="ytUpload" type="button">Upload JSON</button>
               <a class="btn ok" id="ytConnect" href="#">Connect YouTube</a>
             </div>
-            <p class="msg">New Google projects post <b>private</b> videos until Google audits them; switch them to public in YouTube Studio.</p>
+            <p class="msg">Uploads are <b id="ytPrivacy">public</b> (YOUTUBE_PRIVACY in .env). After every upload ClipForge asks YouTube who can actually see the video. If Google locked it to private because your Cloud project hasn't been audited, the publish steps say so: fill in the free <a href="https://support.google.com/youtube/contact/yt_api_form" target="_blank" rel="noopener">YouTube API audit form</a>, and meanwhile upload those clips from the YouTube app.</p>
           </div>
           <div class="pub">
             <h3><span class="logo-dot" style="background:linear-gradient(45deg,#f58529,#dd2a7b,#8134af)">◎</span>Instagram Reels</h3>
@@ -467,12 +493,19 @@ dialog::backdrop { background: rgba(10, 5, 25, .55); backdrop-filter: blur(3px);
   </div>
 </dialog>
 
+<dialog id="postDlg">
+  <div class="dlg-h"><h2>What gets posted</h2><span class="meta" id="postId"></span></div>
+  <div class="dlg-b" id="postBody"></div>
+  <div class="dlg-f"><span class="meta" style="margin-right:auto">Change the first lines with ✎ Edit → Caption.</span><button class="btn" id="postClose" type="button">Close</button></div>
+</dialog>
+
 <dialog id="schedDlg">
   <div class="dlg-h"><h2>Approve &amp; publish</h2></div>
   <div class="dlg-b">
     <p class="msg" style="margin:0">Post now, or pick a time and ClipForge publishes it then (keep the app running).</p>
     <div><label class="field">Publish at (your time)</label><input type="datetime-local" id="schedAt"></div>
     <div class="opts" id="schedQuick"></div>
+    <div class="meta">Tip: post when your viewers are online. For most audiences that is 12–3 PM and 7–10 PM their time, and the same time every day builds a habit.</div>
     <div id="schedPlatWrap"><label class="field">Post to (untick any you don't want)</label><div class="opts" id="schedPlat"></div></div>
   </div>
   <div class="dlg-f">
@@ -589,6 +622,7 @@ $("go").onclick = async () => {
   const common = { formats, clips: +$("clips").value, clip_seconds: +$("len").value, captions: style !== "none",
     caption_style: style, hook: $("hook").checked, progress_bar: $("pbar").checked, jump_cuts: $("cuts").checked,
     zoom: $("zoom").checked, cover_intro: $("intro").checked, campaign: $("campaign").value || null,
+    tease: $("tease").checked, replay: $("replay").checked, beat: $("beat").checked,
     title: $("title").value.trim() || null };
   $("go").disabled = true;
   try {
@@ -617,6 +651,31 @@ $("go").onclick = async () => {
 const LABEL = { awaiting_approval: "ready for review", downloading: "downloading", analyzing: "finding highlights",
   rendering: "rendering", recording: "recording live", publishing: "publishing", approved: "approved (saved)", queued: "queued", scheduled: "scheduled" };
 
+const ICON = { done: "✓", failed: "✕", warn: "!", skipped: "–", pending: "", active: "" };
+function secs(st) { if (!st.t0) return ""; const d = (st.t1 || Date.now() / 1000) - st.t0; return d < 1 ? "" : d >= 60 ? `${Math.floor(d / 60)}m ${Math.round(d % 60)}s` : `${Math.round(d)}s`; }
+function stepsHtml(p, title, open) {
+  if (!p || !(p.stages || []).length) return "";
+  const st = p.stages, n = st.length;
+  const finished = st.filter((x) => ["done", "skipped", "warn"].includes(x.state)).length;
+  const act = st.find((x) => x.state === "active");
+  const frac = (finished + (act && act.pct != null ? act.pct / 100 : act ? 0.3 : 0)) / n;
+  const bad = st.find((x) => x.state === "failed");
+  const head = bad ? `Stopped at: ${esc(bad.label)}` : act ? `Step ${st.indexOf(act) + 1}/${n}: ${esc(act.label)}${act.pct != null ? ` · ${Math.round(act.pct)}%` : ""}` : `${esc(title)} · ${finished}/${n} done`;
+  const rows = st.map((x) => `<div class="stp ${x.state}"><span class="ic">${ICON[x.state] || ""}</span><span class="lb">${esc(x.label)}</span><span class="tm">${x.state === "active" && x.pct != null ? Math.round(x.pct) + "% · " : ""}${secs(x)}</span>
+      ${x.detail ? `<span class="dt">${/^https?:\/\//.test(x.detail) ? `<a href="${esc(x.detail)}" target="_blank" rel="noopener">${esc(x.detail)}</a>` : esc(x.detail)}</span>` : ""}
+      ${x.state === "active" && x.pct != null ? `<span class="bar"><i style="width:${x.pct}%"></i></span>` : ""}</div>`).join("");
+  const warned = st.some((x) => x.state === "warn");
+  return `<details class="steps-box" ${open ? "open" : ""}><summary>${act ? "⏳" : bad ? "❌" : warned ? "⚠️" : "✅"} ${head}${!act && !bad && warned ? " (see warnings)" : ""}<span class="sum-meta">${open ? "" : "details"}</span></summary>
+    <div class="overall"><i style="width:${Math.round(frac * 100)}%"></i></div>${rows}</details>`;
+}
+function progHtml(c) {
+  const m = c.meta || {};
+  const making = ["queued", "rendering"].includes(c.status), publishing = c.status === "publishing";
+  let h = "";
+  if (m.publish_progress && (publishing || ["published", "failed"].includes(c.status))) h += stepsHtml(m.publish_progress, "Publishing", publishing || c.status === "failed");
+  if (m.progress && (making || !m.publish_progress || c.status === "awaiting_approval")) h += stepsHtml(m.progress, "Clip made", making || (c.status === "failed" && !c.output_path));
+  return h;
+}
 function clipHtml(c) {
   const m = c.meta || {};
   const fmt = m.format || "vertical";
@@ -629,6 +688,8 @@ function clipHtml(c) {
   if (c.status === "failed") btns += `<button class="btn" data-act="retry" data-id="${c.id}">Retry</button>`;
   if (hasVideo) btns += `<a class="btn" href="${mediaUrl(c.id)}" download>⬇ Video</a>`;
   if (m.cover_path) btns += `<a class="btn" href="${coverUrl(c.id)}" download>⬇ Cover</a>`;
+  if (c.output_path) btns += `<button class="btn" data-act="post" data-id="${c.id}" title="Title, description, hashtags and tags for each platform">📝 Post text</button>`;
+  if (m.youtube_id && m.youtube_privacy && m.youtube_privacy !== "public") btns += `<button class="btn ok" data-act="ytpublic" data-id="${c.id}">🌍 Make public on YouTube</button>`;
   if (["awaiting_approval", "approved", "failed", "rejected"].includes(c.status)) btns += `<button class="btn" data-act="rerender" data-id="${c.id}" title="Make it again with a fresh AI title and hook">↻ Remake</button>`;
   const chips = [];
   if (m.duration) chips.push(mmss(m.duration));
@@ -639,7 +700,7 @@ function clipHtml(c) {
   const camp = campaignsData.campaigns.find((x) => x.id === m.campaign);
   if (camp) chips.push(`$ ${camp.name}`);
   const links = [];
-  if (m.youtube_id) links.push(`<a href="https://youtu.be/${esc(m.youtube_id)}" target="_blank" rel="noopener">YouTube</a>`);
+  if (m.youtube_id) links.push(`<a href="https://youtu.be/${esc(m.youtube_id)}" target="_blank" rel="noopener">YouTube</a>${m.youtube_privacy && m.youtube_privacy !== "public" ? ` <b class="warn-text">(${esc(m.youtube_privacy)})</b>` : ""}`);
   if (m.instagram_permalink) links.push(`<a href="${esc(m.instagram_permalink)}" target="_blank" rel="noopener">Instagram</a>`); else if (m.instagram_id) links.push("Instagram ✓");
   if (m.facebook_id) links.push(`<a href="https://www.facebook.com/reel/${esc(m.facebook_id)}" target="_blank" rel="noopener">Facebook</a>`);
   if (m.tiktok_id) links.push("TikTok ✓");
@@ -658,6 +719,9 @@ function clipHtml(c) {
       ${sched}
       ${links.length ? `<div class="meta">${links.join(" · ")}${views ? ` · 👁 ${nf(views)}` : ""}${m.earnings_est ? ` · <span class="money">$${m.earnings_est.toFixed(2)}</span>` : ""}</div>` : ""}
       ${c.status === "failed" && c.error ? `<div class="err-text">${esc(c.error.split("\n")[0])}</div>` : ""}
+      ${m.youtube_public_note ? `<div class="warn-text">${esc(m.youtube_public_note)}</div>` : ""}
+      ${(m.publish_warnings || []).map((w) => `<div class="warn-text">${esc(w)}</div>`).join("")}
+      <div class="prog" id="prog-${c.id}"></div>
       <div class="btns">${btns}</div>
     </div>`;
 }
@@ -670,7 +734,8 @@ function jobHead(j) {
   return `<div class="job-head"><span class="job-title">${esc(j.title || j.source)}</span>
     <span class="status ${j.status}">${esc(LABEL[j.status] || j.status)}</span>${riskHtml(risk, true)}
     <span class="meta">${kind} · ${fmtTime(j.created_at)} · ${j.clips.length} clip${j.clips.length === 1 ? "" : "s"}</span>${extra}</div>
-    ${j.status === "failed" && j.error ? `<div class="err-text">${esc(j.error.split("\n")[0])}</div>` : ""}`;
+    ${j.status === "failed" && j.error ? `<div class="err-text">${esc(j.error.split("\n")[0])}</div>` : ""}
+    <div class="prog" id="prog-${j.id}"></div>`;
 }
 const seen = {};
 function renderJobs(jobs) {
@@ -689,15 +754,38 @@ function renderJobs(jobs) {
       delete seen["h" + j.id];
     }
     const headKey = j.status + j.clips.length + (j.error || "") + JSON.stringify((j.meta || {}).rights || "");
-    if (seen["h" + j.id] !== headKey) { el.querySelector(".head").innerHTML = jobHead(j); seen["h" + j.id] = headKey; }
+    if (seen["h" + j.id] !== headKey) { el.querySelector(".head").innerHTML = jobHead(j); seen["h" + j.id] = headKey; delete seen["p" + j.id]; }
+    const jp = ["queued", "downloading", "analyzing", "failed"].includes(j.status) || j.clips.length === 0 ? stepsHtml((j.meta || {}).progress, "Video analysed", j.status !== "done") : "";
+    setProg(j.id, jp);
     const grid = el.querySelector(".clips");
     j.clips.filter((c) => !filter || c.status === filter).forEach((c) => {
       let ce = document.getElementById("clip-" + c.id);
       if (!ce) { ce = document.createElement("div"); ce.className = "clip"; ce.id = "clip-" + c.id; grid.appendChild(ce); delete seen[c.id]; }
-      const key = c.status + (c.title || "") + JSON.stringify(c.meta || {}) + (c.error || "") + campaignsData.campaigns.length;
-      if (seen[c.id] !== key) { ce.innerHTML = clipHtml(c); seen[c.id] = key; }
+      const { progress: _p, publish_progress: _pp, ...rest } = c.meta || {};
+      const key = c.status + (c.title || "") + JSON.stringify(rest) + (c.error || "") + campaignsData.campaigns.length;
+      if (seen[c.id] !== key) { ce.innerHTML = clipHtml(c); seen[c.id] = key; delete seen["p" + c.id]; }
+      setProg(c.id, progHtml(c));
     });
   });
+}
+function setProg(id, html) {
+  const el = document.getElementById("prog-" + id);
+  if (!el || seen["p" + id] === html) return;
+  const open = [...el.querySelectorAll("details")].map((d) => d.open);
+  el.innerHTML = html; seen["p" + id] = html;
+  if (open.length) el.querySelectorAll("details").forEach((d, i) => { if (open[i] !== undefined) d.open = open[i]; });
+}
+function visibilityBanner(jobs) {
+  const pub = jobs.flatMap((j) => j.clips).filter((c) => c.status === "published" && (c.meta || {}).youtube_id);
+  const hidden = pub.filter((c) => c.meta.youtube_privacy && c.meta.youtube_privacy !== "public");
+  const unknown = pub.filter((c) => !c.meta.youtube_privacy);
+  const box = $("visBox");
+  if (!hidden.length && !unknown.length) { box.classList.add("hidden"); return; }
+  const html = hidden.length
+    ? `<b>⚠️ ${hidden.length} YouTube upload(s) are not public</b><span>Nobody can find private or unlisted videos, so they get no views.</span><button class="btn ok" data-act="ytpublicall" data-id="all">🌍 Make them all public</button>`
+    : `<b>Check who can see your ${unknown.length} YouTube upload(s)</b><span>Uploads made before this update may be private.</span><button class="btn" data-act="ytcheck" data-id="all">🔎 Check visibility</button>`;
+  if (box.dataset.k !== html) { box.innerHTML = html + '<span class="msg" id="visMsg"></span>'; box.dataset.k = html; }
+  box.classList.remove("hidden");
 }
 $("filter").onchange = () => { $("jobs").innerHTML = ""; for (const k in seen) delete seen[k]; renderJobs(jobsCache); };
 
@@ -717,6 +805,21 @@ document.addEventListener("click", async (e) => {
   const { act, id } = b.dataset;
   if (act === "edit") return openEdit(id);
   if (act === "approve") return openSchedule(id);
+  if (act === "post") return openPost(id);
+  if (act === "ytpublic" || act === "ytpublicall" || act === "ytcheck") {
+    if (act !== "ytcheck" && !confirm(act === "ytpublic" ? "Make this video public on YouTube?" : "Make all your ClipForge uploads public on YouTube?")) return;
+    b.disabled = true; const vm = $("visMsg");
+    try {
+      if (act === "ytcheck") { const r = await api("/api/stats/refresh", { method: "POST" }); if (vm) setMsg(vm, r.errors.length ? r.errors[0] : `${r.not_public || 0} not public`, r.errors.length ? "err" : "good"); }
+      else {
+        const r = await api("/api/youtube/make-public" + (act === "ytpublic" ? `?job_id=${id}` : ""), { method: "POST" });
+        const locked = r.results.filter((x) => !x.ok);
+        const text = `${r.public} of ${r.total} public.` + (locked.length ? " " + locked[0].note : "");
+        if (vm) setMsg(vm, text, locked.length ? "err" : "good"); else alert(text);
+      }
+    } catch (err) { alert(err.message); }
+    b.disabled = false; return refresh();
+  }
   if (act === "reject" && !confirm("Delete this clip?")) return;
   if (act === "delcamp") { if (!confirm("Remove this campaign?")) return; await api(`/api/campaigns/${id}`, { method: "DELETE" }).catch((err) => alert(err.message)); return loadCampaigns(); }
   if (act === "copy") { try { await navigator.clipboard.writeText(b.dataset.url); b.textContent = "Copied"; } catch (err) {} return; }
@@ -728,7 +831,7 @@ document.addEventListener("click", async (e) => {
 });
 
 async function refresh() {
-  try { jobsCache = await api("/api/jobs"); renderJobs(jobsCache); heroStats(jobsCache); } catch (e) {}
+  try { jobsCache = await api("/api/jobs"); renderJobs(jobsCache); heroStats(jobsCache); visibilityBanner(jobsCache); } catch (e) {}
 }
 const findClip = (id) => jobsCache.flatMap((j) => j.clips).find((c) => c.id === id);
 
@@ -780,6 +883,21 @@ $("edSave").onclick = async () => {
   } catch (e) { setMsg(msg, e.message, "err"); }
   $("edSave").disabled = false;
 };
+
+/* ---------- post text dialog ---------- */
+async function openPost(id) {
+  $("postBody").innerHTML = '<div class="msg">Loading…</div>'; $("postId").textContent = ""; $("postDlg").showModal();
+  try {
+    const p = await api(`/jobs/${id}/post`);
+    const block = (label, text, extra) => `<div><label class="field">${label}${extra ? ` <span class="meta">${extra}</span>` : ""} <button class="btn" type="button" data-copy="${esc(text)}">Copy</button></label><pre class="post">${esc(text)}</pre></div>`;
+    $("postId").textContent = `${p.youtube_description.length} chars · ${p.hashtags.length} hashtags`;
+    $("postBody").innerHTML = block("YouTube title", p.title) + block("YouTube description", p.youtube_description, "the first line shows under the Short")
+      + block("YouTube tags", p.youtube_tags.join(", "), `${p.youtube_tags.length} tags`) + block("Instagram caption", p.instagram, "max 5 hashtags (Instagram rule)")
+      + block("TikTok caption", p.tiktok) + block("Facebook caption", p.facebook);
+    $("postBody").querySelectorAll("[data-copy]").forEach((b) => b.onclick = async () => { try { await navigator.clipboard.writeText(b.dataset.copy); b.textContent = "Copied"; } catch (e) {} });
+  } catch (e) { $("postBody").innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
+}
+$("postClose").onclick = () => $("postDlg").close();
 
 /* ---------- schedule dialog ---------- */
 let scheduling = null;
@@ -946,6 +1064,7 @@ async function initPublishing() {
   const p = await api("/api/publishing");
   if (cfg) for (const k of ["youtube", "instagram", "facebook", "tiktok"]) cfg[k] = !!p[k];
   $("ytState").innerHTML = p.youtube ? '<span class="ok-text">✓ Connected</span>' : (p.youtube_client_uploaded ? "Client JSON uploaded. Press Connect YouTube." : "Not connected.");
+  $("ytPrivacy").textContent = p.youtube_privacy || "public";
   $("igState").innerHTML = p.instagram ? `<span class="ok-text">✓ Connected</span> (account ${esc(p.instagram_user_id)})` : "Not connected.";
   $("fbState").innerHTML = p.facebook ? `<span class="ok-text">✓ Connected</span> (Page ${esc(p.facebook_page_id)})` : "Not connected.";
   $("ttState").innerHTML = p.tiktok ? `<span class="ok-text">✓ Connected</span> (posts as ${esc(p.tiktok_privacy)})` : "Not connected.";
@@ -1001,6 +1120,10 @@ async function init() {
   $("capStyle").value = cfg.captions ? cfg.caption_style : "none";
   $("hook").checked = cfg.hook; $("pbar").checked = cfg.progress_bar;
   $("cuts").checked = cfg.jump_cuts; $("zoom").checked = cfg.zoom; $("intro").checked = cfg.cover_intro;
+  $("tease").checked = cfg.tease !== false; $("replay").checked = cfg.replay !== false; $("beat").checked = cfg.beat !== false;
+  $("beatInfo").textContent = (cfg.music_tracks || []).length
+    ? `Your ${cfg.music_tracks.length} track(s) from data/music, ducked under speech`
+    : "Built-in royalty-free EDM beat, ducked under speech. Add your own CC0 tracks to data/music";
   initPublishing(); initPills(); initAi(); loadCampaigns(); refresh();
   let v = "create"; try { v = localStorage.getItem("clipView") || "create"; } catch (e) {}
   go(v);

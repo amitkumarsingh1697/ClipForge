@@ -196,7 +196,7 @@ def test_schedule_then_publish_when_due(short_portrait, talky, monkeypatch):
     assert pipeline.run_due_schedules() == 1
     clip = get_store().get(cid)
     assert clip["status"] == "published" and clip["meta"]["youtube_id"] == "vid1"
-    assert "#streamerx #ad @streamerx" in posted[0]
+    assert "#streamerx #ad" in posted[0] and "@streamerx" in posted[0]  # campaign tags always kept
     monkeypatch.setattr(sp, "youtube_views", lambda ids: {"vid1": 12_000})
     st = pipeline.refresh_stats()
     assert st["views"] == 12_000 and st["earnings_est"] == 24.0

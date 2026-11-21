@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     jump_cuts: bool = True         # remove dead air between sentences (only when there is speech)
     zoom_punch: bool = True        # punch-in zooms on key words
     cover_intro: bool = True       # cover image as the first frames (so every platform shows it as the thumbnail)
+    payoff_tease: bool = True      # open with ~2 s of the clip's payoff moment, then play the clip
+    payoff_replay: bool = True     # end on a slow-motion, zoomed replay of the payoff (loops back into the tease)
+    beat: bool = True              # background beat under the clip, ducked under speech (data/music or built-in)
+    beat_volume: float = 0.12      # 0-1 before ducking
 
     # --- transcription ------------------------------------------------------
     whisper_model: str = "small"  # tiny/base/small/medium/large-v3
@@ -67,7 +71,7 @@ class Settings(BaseSettings):
 
     # --- YouTube --------------------------------------------------------------
     youtube_client_secrets: Path | None = None  # client_secret.json (Desktop app type)
-    youtube_privacy: str = "private"  # private | unlisted | public
+    youtube_privacy: str = "public"  # public | unlisted | private
     youtube_category_id: str = "20"  # Gaming
 
     # --- Instagram ------------------------------------------------------------

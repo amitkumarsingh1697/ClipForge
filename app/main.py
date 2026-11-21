@@ -63,12 +63,16 @@ class UrlIn(BaseModel):
     zoom: bool | None = None
     cover_intro: bool | None = None
     campaign: str | None = None
+    tease: bool | None = None
+    replay: bool | None = None
+    beat: bool | None = None
 
     def options(self) -> dict:
         try:
             return pipeline.clean_options(self.formats, self.clips, self.clip_seconds, self.captions,
                                           self.caption_style, self.hook, self.progress_bar, self.jump_cuts,
-                                          self.zoom, self.cover_intro, self.campaign)
+                                          self.zoom, self.cover_intro, self.campaign, self.tease, self.replay,
+                                          self.beat)
         except ValueError as e:
             raise HTTPException(422, str(e))
 
@@ -90,8 +94,19 @@ def api_config():
             "clip_min_s": s.clip_min_s, "clip_max_s": s.clip_max_s, "captions": s.captions_enabled,
             "caption_style": s.caption_style, "hook": s.hook_overlay, "progress_bar": s.progress_bar,
             "jump_cuts": s.jump_cuts, "zoom": s.zoom_punch, "cover_intro": s.cover_intro,
+            "tease": s.payoff_tease, "replay": s.payoff_replay, "beat": s.beat,
+            "youtube_privacy": s.youtube_privacy, "music_tracks": _music_tracks(),
             "telegram": bool(s.telegram_bot_token and s.telegram_owner_chat_id),
             **publishers_configured()}
+
+
+def _music_tracks() -> list[str]:
+    from app.services import music
+
+    try:
+        return [p.name for p in music.user_tracks(get_settings().data_dir)]
+    except OSError:
+        return []
 
 
 class SettingsIn(BaseModel):
@@ -182,11 +197,12 @@ async def upload(file: UploadFile = File(...), formats: str | None = Form(None),
                  title: str | None = Form(None), caption_style: str | None = Form(None),
                  hook: bool | None = Form(None), progress_bar: bool | None = Form(None),
                  jump_cuts: bool | None = Form(None), zoom: bool | None = Form(None),
-                 cover_intro: bool | None = Form(None), campaign: str | None = Form(None)):
+                 cover_intro: bool | None = Form(None), campaign: str | None = Form(None),
+                 tease: bool | None = Form(None), replay: bool | None = Form(None), beat: bool | None = Form(None)):
     s = get_settings()
     try:
         opts = pipeline.clean_options(formats, clips, clip_seconds, captions, caption_style, hook, progress_bar,
-                                      jump_cuts, zoom, cover_intro, campaign)
+                                      jump_cuts, zoom, cover_intro, campaign, tease, replay, beat)
     except ValueError as e:
         raise HTTPException(422, str(e))
     ext = Path(file.filename or "").suffix.lower()
@@ -345,6 +361,28 @@ def stats_refresh():
     return pipeline.refresh_stats()
 
 
+@app.post("/api/youtube/make-public", dependencies=[Depends(require_token)])
+def youtube_make_public(job_id: str | None = None):
+    """Switch published clips (one, or all) to public on YouTube and report what YouTube says."""
+    try:
+        res = pipeline.make_youtube_public([job_id] if job_id else None)
+    except Exception as e:
+        raise HTTPException(502, str(e)[:300])
+    return {"results": res, "public": sum(r["ok"] for r in res), "total": len(res)}
+
+
+@app.get("/jobs/{job_id}/post", dependencies=[Depends(require_token)])
+def post_preview(job_id: str):
+    """Exactly what each platform will get (title, description, hashtags, tags)."""
+    job = get_store().get(job_id)
+    if not job or job["kind"] != "clip":
+        raise HTTPException(404)
+    from app.services.social_publisher import youtube_title
+
+    short = job["meta"].get("format", "vertical") != "landscape" and float(job["meta"].get("duration") or 0) <= 180
+    return {"title": youtube_title(job["title"] or "Clip", short), **pipeline.post_package(job["title"] or "", job["meta"])}
+
+
 @app.post("/jobs/{job_id}/reject", dependencies=[Depends(require_token)])
 def reject(job_id: str):
     return {"result": pipeline.reject(job_id)}
@@ -357,6 +395,9 @@ class RerenderIn(BaseModel):
     jump_cuts: bool | None = None
     zoom: bool | None = None
     cover_intro: bool | None = None
+    tease: bool | None = None
+    replay: bool | None = None
+    beat: bool | None = None
     new_ai_text: bool = False  # ask the LLM for a fresh title/hook/caption
 
 
@@ -374,7 +415,8 @@ def rerender(job_id: str, body: RerenderIn | None = None):
         try:
             changes = pipeline.clean_options(caption_style=body.caption_style, hook=body.hook,
                                              progress_bar=body.progress_bar, jump_cuts=body.jump_cuts,
-                                             zoom=body.zoom, cover_intro=body.cover_intro)
+                                             zoom=body.zoom, cover_intro=body.cover_intro, tease=body.tease,
+                                             replay=body.replay, beat=body.beat)
         except ValueError as e:
             raise HTTPException(422, str(e))
         if body.new_ai_text:
