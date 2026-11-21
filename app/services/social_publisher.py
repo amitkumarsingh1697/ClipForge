@@ -5,8 +5,9 @@ FIXES vs the spec:
   * Uploads use the resumable protocol (large files over flaky links).
   * The daily quota is 10,000 units and one upload costs ~1,600, so about 6
     uploads/day. quotaExceeded is reported clearly instead of a stack trace.
-  * Apps that haven't passed Google's API audit have uploads forced to
-    private. Privacy is configurable (default private) and the result says so.
+  * Apps that haven't passed Google's API audit have uploads locked to
+    private. Privacy is configurable (default public); after every upload the
+    real visibility is read back, so a locked upload is reported, not hidden.
   * "#Shorts" is added and the clip must be vertical and <= 3 min to be a Short.
   Instagram
   * The Graph API cannot take a file from disk the way the spec assumed: it
@@ -50,12 +51,18 @@ def youtube_title(title: str, shorts: bool = True) -> str:
     return t[:100]
 
 
+def _noop(*_a, **_k) -> None:
+    pass
+
+
 def upload_youtube(video: Path, title: str, description: str, tags: list[str] | None = None,
-                   shorts: bool = True, thumbnail: Path | None = None) -> str:
+                   shorts: bool = True, thumbnail: Path | None = None, on_step=None) -> str:
+    """on_step(key, state, detail, pct) reports: upload, meta, thumb (see app.utils.progress)."""
     from googleapiclient.discovery import build
     from googleapiclient.errors import HttpError
     from googleapiclient.http import MediaFileUpload
 
+    step = on_step or _noop
     s = get_settings()
     yt = build("youtube", "v3", credentials=youtube_credentials(), cache_discovery=False)
     body = {
@@ -63,12 +70,17 @@ def upload_youtube(video: Path, title: str, description: str, tags: list[str] | 
                     "tags": (tags or [])[:30], "categoryId": s.youtube_category_id},
         "status": {"privacyStatus": s.youtube_privacy, "selfDeclaredMadeForKids": False},
     }
-    media = MediaFileUpload(str(video), mimetype="video/mp4", chunksize=8 * 1024 * 1024, resumable=True)
+    media = MediaFileUpload(str(video), mimetype="video/mp4", chunksize=4 * 1024 * 1024, resumable=True)
     req = yt.videos().insert(part="snippet,status", body=body, media_body=media)
     response, retries = None, 0
+    size_mb = video.stat().st_size / 1e6
+    step("upload", detail=f"Sending {size_mb:.0f} MB to YouTube…", pct=0)
     while response is None:
         try:
-            _status, response = req.next_chunk()
+            status, response = req.next_chunk()
+            if status is not None:
+                step("upload", detail=f"{status.progress() * size_mb:.0f} of {size_mb:.0f} MB sent",
+                     pct=status.progress() * 100)
         except HttpError as e:
             reason = str(e)
             if "quotaExceeded" in reason or "uploadLimitExceeded" in reason:
@@ -80,20 +92,69 @@ def upload_youtube(video: Path, title: str, description: str, tags: list[str] | 
             raise PublishError(f"YouTube upload failed: {reason[:300]}") from e
     vid = response["id"]
     log.info("youtube upload ok: %s (%s)", vid, s.youtube_privacy)
+    step("upload", "done", detail=f"{size_mb:.0f} MB uploaded")
+    step("meta", "done", detail=f"Title “{body['snippet']['title']}”, {len(description)} character description, "
+                                f"{description.count('#')} hashtags, {len(body['snippet']['tags'])} tags")
     if thumbnail is not None and thumbnail.exists():
         # Needs a phone-verified channel. Shorts mostly show the first frame instead, which is why
         # ClipForge also puts the cover at the start of the clip. Never fail the upload over it.
+        step("thumb", detail="Setting the cover as thumbnail…")
         try:
             yt.thumbnails().set(videoId=vid, media_body=MediaFileUpload(str(thumbnail), mimetype="image/jpeg")).execute()
+            step("thumb", "done", detail="Custom thumbnail set")
         except HttpError as e:
             log.warning("youtube thumbnail not set: %s", e)
+            why = "verify your channel by phone (youtube.com/verify) to allow custom thumbnails" \
+                if "forbidden" in str(e).lower() or "403" in str(e) else str(e)[:150]
+            step("thumb", "warn", detail=f"Not set ({why}). The cover is the first frame, so Shorts still show it.")
+    else:
+        step("thumb", "skipped", detail="No cover image")
     return vid
 
 
+LOCKED_HELP = ("Google locked this upload to private because your Google Cloud project hasn't passed the YouTube "
+               "API audit. Fill in the free audit form (support.google.com/youtube/contact/yt_api_form), or "
+               "until then download the clip and upload it in the YouTube app / Studio.")
+
+
+def youtube_status(video_ids: list[str]) -> dict[str, dict]:
+    """privacy (public/unlisted/private), upload status, and whether YouTube locked it (rejection reasons)."""
+    from googleapiclient.discovery import build
+
+    if not video_ids:
+        return {}
+    yt = build("youtube", "v3", credentials=youtube_credentials(), cache_discovery=False)
+    out = {}
+    for i in range(0, len(video_ids), 50):
+        res = yt.videos().list(part="status,statistics", id=",".join(video_ids[i:i + 50])).execute()
+        for it in res.get("items", []):
+            st = it.get("status", {})
+            out[it["id"]] = {"privacy": st.get("privacyStatus"), "upload": st.get("uploadStatus"),
+                             "rejection": st.get("rejectionReason") or st.get("failureReason"),
+                             "views": int(it.get("statistics", {}).get("viewCount", 0))}
+    return out
+
+
+def set_youtube_privacy(video_id: str, privacy: str = "public") -> dict:
+    """Change visibility of an uploaded video, then read back what YouTube actually did."""
+    from googleapiclient.discovery import build
+    from googleapiclient.errors import HttpError
+
+    yt = build("youtube", "v3", credentials=youtube_credentials(), cache_discovery=False)
+    try:
+        yt.videos().update(part="status", body={"id": video_id, "status": {
+            "privacyStatus": privacy, "selfDeclaredMadeForKids": False}}).execute()
+    except HttpError as e:
+        raise PublishError(f"YouTube refused: {str(e)[:300]}") from e
+    return youtube_status([video_id]).get(video_id, {})
+
+
 def upload_instagram(video: Path, caption: str, client: httpx.Client | None = None,
-                     poll_s: float = 5.0, timeout_s: float = 600, thumb_offset_ms: int | None = None) -> str:
+                     poll_s: float = 5.0, timeout_s: float = 600, thumb_offset_ms: int | None = None,
+                     on_step=None) -> str:
     from app.utils.auth_helpers import instagram_user_id
 
+    step = on_step or _noop
     s = get_settings()
     ig_user = instagram_user_id()
     if not ig_user:
@@ -111,12 +172,15 @@ def upload_instagram(video: Path, caption: str, client: httpx.Client | None = No
             raise PublishError(f"IG container create failed: {r.text[:300]}")
         container = r.json()["id"]
         size = video.stat().st_size
+        step("upload", detail=f"Sending {size / 1e6:.0f} MB to Instagram…")
         with video.open("rb") as fh:
             r = c.post(f"https://rupload.facebook.com/ig-api-upload/{s.graph_api_version}/{container}",
                        headers={"Authorization": f"OAuth {token}", "offset": "0", "file_size": str(size)},
                        content=fh.read(), timeout=600)
         if r.status_code != 200 or not r.json().get("success", False):
             raise PublishError(f"IG upload failed: {r.text[:300]}")
+        step("upload", "done", detail=f"{size / 1e6:.0f} MB uploaded")
+        step("process", detail="Instagram is processing the video…")
         deadline = time.time() + timeout_s
         while True:
             st = c.get(f"{graph}/{container}", params={"fields": "status_code,status", "access_token": token}).json()
@@ -128,12 +192,15 @@ def upload_instagram(video: Path, caption: str, client: httpx.Client | None = No
             if time.time() > deadline:
                 raise PublishError("IG processing timed out")
             time.sleep(poll_s)
+        step("process", "done")
+        step("publish", detail="Publishing the Reel…")
         r = c.post(f"{graph}/{ig_user}/media_publish",
                    data={"creation_id": container, "access_token": token})
         if r.status_code != 200:
             raise PublishError(f"IG publish failed: {r.text[:300]}")
         media_id = r.json()["id"]
         log.info("instagram publish ok: %s", media_id)
+        step("publish", "done", detail=f"{caption.count('#')} hashtags (Instagram allows 5)")
         return media_id
     finally:
         if client is None:
@@ -151,12 +218,13 @@ def instagram_permalink(media_id: str) -> str | None:
 
 
 def upload_tiktok(video: Path, title: str, cover_ms: int = 0, client: httpx.Client | None = None,
-                  poll_s: float = 5.0, timeout_s: float = 600) -> str:
+                  poll_s: float = 5.0, timeout_s: float = 600, on_step=None) -> str:
     """TikTok Content Posting API, direct post from a local file (chunked upload).
     Apps that haven't passed TikTok's audit can only post privately (SELF_ONLY)."""
     from app.utils.auth_helpers import tiktok_token
 
     s = get_settings()
+    step = on_step or _noop
     c = client or httpx.Client(timeout=120)
     api = "https://open.tiktokapis.com/v2/post/publish"
     try:
@@ -185,15 +253,20 @@ def upload_tiktok(video: Path, title: str, cover_ms: int = 0, client: httpx.Clie
                     "Content-Range": f"bytes {start}-{end}/{size}"})
                 if r.status_code not in (200, 201, 206):
                     raise PublishError(f"TikTok upload failed: {r.status_code} {r.text[:200]}")
+                step("upload", detail=f"Chunk {i + 1} of {count}", pct=(i + 1) / count * 100)
+        step("upload", "done")
+        step("process", detail=f"TikTok is processing (posts as {s.tiktok_privacy})…")
         deadline = time.time() + timeout_s
         while time.time() < deadline:
             st = c.post(f"{api}/status/fetch/", headers=h, json={"publish_id": publish_id}).json()
             status = (st.get("data") or {}).get("status")
             if status == "PUBLISH_COMPLETE":
+                step("process", "done", detail=f"Posted ({s.tiktok_privacy})")
                 return publish_id
             if status == "FAILED":
                 raise PublishError(f"TikTok processing failed: {(st.get('data') or {}).get('fail_reason')}")
             time.sleep(poll_s)
+        step("process", "warn", detail="Still processing; TikTok finishes it in the background")
         return publish_id  # still processing; TikTok finishes it in the background
     finally:
         if client is None:
@@ -230,12 +303,13 @@ def instagram_views(media_id: str) -> int | None:
 
 
 def upload_facebook(video: Path, description: str, client: httpx.Client | None = None,
-                    poll_s: float = 5.0, timeout_s: float = 300) -> str:
+                    poll_s: float = 5.0, timeout_s: float = 300, on_step=None) -> str:
     """Facebook Page Reel: start -> upload the file to rupload.facebook.com -> finish (PUBLISHED).
     Reels must be 3-90 s; Meta allows 30 API-published reels per Page per 24 h."""
     from app.utils.auth_helpers import facebook_page
 
     s = get_settings()
+    step = on_step or _noop
     page_id, token = facebook_page()
     if not (page_id and token):
         raise PublishError("Facebook Page is not connected")
@@ -247,17 +321,22 @@ def upload_facebook(video: Path, description: str, client: httpx.Client | None =
             raise PublishError(f"FB reel start failed: {r.text[:300]}")
         video_id = r.json()["video_id"]
         size = video.stat().st_size
+        step("upload", detail=f"Sending {size / 1e6:.0f} MB to Facebook…")
         with video.open("rb") as fh:
             r = c.post(f"https://rupload.facebook.com/video-upload/{s.graph_api_version}/{video_id}",
                        headers={"Authorization": f"OAuth {token}", "offset": "0", "file_size": str(size)},
                        content=fh.read(), timeout=600)
         if r.status_code != 200 or not r.json().get("success", False):
             raise PublishError(f"FB reel upload failed: {r.text[:300]}")
+        step("upload", "done")
+        step("publish", detail="Publishing the Reel…")
         r = c.post(f"{graph}/{page_id}/video_reels", data={
             "upload_phase": "finish", "video_id": video_id, "video_state": "PUBLISHED",
             "description": description[:2200], "access_token": token})
         if r.status_code != 200 or not r.json().get("success", False):
             raise PublishError(f"FB reel publish failed: {r.text[:300]}")
+        step("publish", "done")
+        step("process", detail="Facebook is processing…")
         deadline = time.time() + timeout_s
         while time.time() < deadline:  # surface processing errors; otherwise Meta finishes in the background
             st = (c.get(f"{graph}/{video_id}", params={"fields": "status", "access_token": token}).json()
@@ -269,6 +348,7 @@ def upload_facebook(video: Path, description: str, client: httpx.Client | None =
             if st.get("video_status") == "ready" or (st.get("publishing_phase") or {}).get("status") == "complete":
                 break
             time.sleep(poll_s)
+        step("process", "done")
         log.info("facebook reel ok: %s", video_id)
         return video_id
     finally:

@@ -67,7 +67,34 @@ def _ydl_opts(dest_dir: Path, max_height: int, force_ipv4: bool) -> dict:
     return opts
 
 
-def download_url(url: str, dest_dir: Path, max_height: int = 1080) -> tuple[Path, dict]:
+def _progress_hook(on_progress):
+    state = {"part": 0, "last_file": None}
+
+    def hook(d: dict) -> None:
+        if d.get("status") != "downloading":
+            return
+        fn = d.get("filename")
+        if fn != state["last_file"]:
+            state["last_file"], state["part"] = fn, state["part"] + 1
+        total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
+        done = d.get("downloaded_bytes") or 0
+        pct = done / total * 100 if total else None
+        speed = d.get("speed") or 0
+        eta = d.get("eta")
+        bits = [f"{done / 1e6:.0f}/{total / 1e6:.0f} MB" if total else f"{done / 1e6:.0f} MB"]
+        if speed:
+            bits.append(f"{speed / 1e6:.1f} MB/s")
+        if eta:
+            bits.append(f"{int(eta) // 60}:{int(eta) % 60:02d} left")
+        what = "video" if state["part"] == 1 else "audio" if state["part"] == 2 else f"part {state['part']}"
+        try:
+            on_progress("download", detail=f"Downloading {what}: " + " · ".join(bits), pct=pct)
+        except Exception:
+            pass
+    return hook
+
+
+def download_url(url: str, dest_dir: Path, max_height: int = 1080, on_progress=None) -> tuple[Path, dict]:
     """Download a video link. Returns (path, metadata).
 
     Network failures (TLS dropped, timeouts) are retried once over IPv4, then
@@ -79,7 +106,10 @@ def download_url(url: str, dest_dir: Path, max_height: int = 1080) -> tuple[Path
     last: Exception | None = None
     for force_ipv4 in (False, True):
         try:
-            with yt_dlp.YoutubeDL(_ydl_opts(dest_dir, max_height, force_ipv4)) as ydl:
+            opts = _ydl_opts(dest_dir, max_height, force_ipv4)
+            if on_progress is not None:
+                opts["progress_hooks"] = [_progress_hook(on_progress)]
+            with yt_dlp.YoutubeDL(opts) as ydl:
                 # Check first: downloading a live URL would never finish.
                 info = ydl.extract_info(url, download=False)
                 if info.get("is_live"):

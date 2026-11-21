@@ -132,10 +132,17 @@ def _face_detector():
         return None
 
 
-def zoom_filter(times: list[tuple[float, float]], out_w: int, out_h: int, amount: float = 0.12) -> str:
-    """Punch-in zoom during the given (start, end) times: the frame jumps to 1+amount and back."""
-    on = "+".join(f"between(it,{a:.3f},{b:.3f})" for a, b in times)
-    z = f"if({on},{1 + amount:.3f},1)"
+def zoom_filter(times: list, out_w: int, out_h: int, amount: float = 0.12) -> str:
+    """Punch-in zoom during the given (start, end[, amount]) output times: the frame jumps in and back.
+    A third value sets a stronger zoom for that window (used for the replay of the payoff)."""
+    groups: dict[float, list[str]] = {}
+    for t in times:
+        a, b = t[0], t[1]
+        amt = t[2] if len(t) > 2 else amount
+        groups.setdefault(round(1 + amt, 3), []).append(f"between(it,{a:.3f},{b:.3f})")
+    z = "1"
+    for level, conds in sorted(groups.items()):
+        z = f"if({'+'.join(conds)},{level:.3f},{z})"
     return (f"zoompan=z='{z}':d=1:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s={out_w}x{out_h}:fps=30,setsar=1")
 
 
@@ -169,13 +176,19 @@ def render_clip(src: Path, dst: Path, start: float, end: float, ass_file: Path |
                 crop_x: int | None = None, progress_bar: bool = False,
                 bar_color: str = "FFE600", max_kbps: int = 8000,
                 keep: list[tuple[float, float]] | None = None,
-                zoom_times: list[tuple[float, float]] | None = None,
-                intro_image: Path | None = None, intro_s: float = 0.25) -> Path:
+                zoom_times: list | None = None,
+                intro_image: Path | None = None, intro_s: float = 0.25,
+                music: Path | None = None, music_volume: float = 0.12,
+                on_progress=None) -> Path:
     """Render the final clip.
 
-    keep        jump cuts: only these (start, end) spans, relative to the clip, are kept.
-                Each span is its own seeked input joined by the concat filter (the
-                select/aselect approach can stall some ffmpeg builds).
+    keep        the (start, end[, speed]) spans, relative to the clip, played in this order.
+                Used for jump cuts (dead air removed), the payoff tease at the start and
+                the slow-motion replay at the end. Each span is its own seeked input joined
+                by the concat filter (the select/aselect approach can stall some ffmpeg builds).
+    music       background track, looped, quiet, and ducked whenever the clip itself is loud
+                (sidechain compression), so speech stays clear.
+    on_progress callback(pct 0-100) while ffmpeg renders.
     zoom_times  punch-in zooms, in output time (after jump cuts)
     intro_image the cover shown as the first frames, so every platform's
                 auto-thumbnail and the first thing a viewer sees is the cover. It is
@@ -188,10 +201,15 @@ def render_clip(src: Path, dst: Path, start: float, end: float, ass_file: Path |
     target = out_w / out_h
     if crop_x is None:
         crop_x = find_crop_x(src, start, duration, info, target_aspect=target) if info.aspect > target * 1.01 else 0
-    spans = [(max(0.0, a), min(duration, b)) for a, b in (keep or []) if min(duration, b) - max(0.0, a) > 0.05]
+    spans = []
+    for sp in keep or []:
+        a, b = max(0.0, sp[0]), min(duration, sp[1])
+        speed = float(sp[2]) if len(sp) > 2 and sp[2] else 1.0
+        if b - a > 0.05:
+            spans.append((a, b, max(0.5, min(2.0, speed))))
     if not spans:
-        spans = [(0.0, duration)]
-    out_dur = sum(b - a for a, b in spans)
+        spans = [(0.0, duration, 1.0)]
+    out_dur = sum((b - a) / sp for a, b, sp in spans)
     vf = frame_filter(info, crop_x, out_w, out_h)
     if zoom_times:
         vf += "," + zoom_filter(zoom_times, out_w, out_h)
@@ -207,18 +225,23 @@ def render_clip(src: Path, dst: Path, start: float, end: float, ass_file: Path |
         vf += f",ass={ass_file.name}"
 
     cmd = ["ffmpeg", "-y", "-v", "error", "-nostdin"]
-    for a, b in spans:
+    for a, b, _sp in spans:
         cmd += ["-ss", f"{start + a:.3f}", "-t", f"{b - a:.3f}", "-i", src.resolve()]
     n = len(spans)
+    use_music = music is not None and Path(music).exists()
+    if use_music:
+        cmd += ["-stream_loop", "-1", "-i", Path(music).resolve()]
     parts = []
-    if n == 1:
+    if n == 1 and spans[0][2] == 1.0:
         v_in, a_in = "[0:v]", "[0:a:0]"
         graph = f"[0:v]fps=30,{vf}[v0]"
     else:
-        for i in range(n):
-            parts.append(f"[{i}:v]fps=30,setpts=PTS-STARTPTS[cv{i}]")
+        for i, (_a, _b, sp) in enumerate(spans):
+            vpts = "PTS-STARTPTS" if sp == 1.0 else f"(PTS-STARTPTS)/{sp:.3f}"
+            parts.append(f"[{i}:v]setpts={vpts},fps=30[cv{i}]")
             if info.has_audio:
-                parts.append(f"[{i}:a:0]aresample=48000,aformat=channel_layouts=stereo,asetpts=PTS-STARTPTS[ca{i}]")
+                tempo = "" if sp == 1.0 else f",atempo={sp:.3f}"
+                parts.append(f"[{i}:a:0]aresample=48000,aformat=channel_layouts=stereo,asetpts=PTS-STARTPTS{tempo}[ca{i}]")
         joined = "".join(f"[cv{i}]" + (f"[ca{i}]" if info.has_audio else "") for i in range(n))
         parts.append(f"{joined}concat=n={n}:v=1:a={1 if info.has_audio else 0}" + ("[vj][aj]" if info.has_audio else "[vj]"))
         a_in = "[aj]"
@@ -230,8 +253,19 @@ def render_clip(src: Path, dst: Path, start: float, end: float, ass_file: Path |
                   f"[v0][bar]overlay=x='-w+w*t/{out_dur:.3f}':y=H-h:eof_action=pass:eval=frame[v1]")
         out_label = "[v1]"
     graph += f";{out_label}format=yuv420p,setsar=1[vout]"
-    if info.has_audio:
-        graph += f";{a_in}aresample=48000,aformat=channel_layouts=stereo,loudnorm=I=-14:TP=-1.5:LRA=11[aout]"
+    norm = "loudnorm=I=-14:TP=-1.5:LRA=11"
+    if use_music:
+        mu = (f"[{n}:a:0]aresample=48000,aformat=channel_layouts=stereo,atrim=0:{out_dur:.3f},"
+              f"volume={music_volume:.3f},afade=t=in:d=0.4,afade=t=out:st={max(0.0, out_dur - 0.4):.3f}:d=0.4")
+        if info.has_audio:
+            graph += (f";{a_in}aresample=48000,aformat=channel_layouts=stereo,asplit=2[va][vs]"
+                      f";{mu}[mu];[mu][vs]sidechaincompress=threshold=0.02:ratio=12:attack=10:release=400[duck]"
+                      f";[va][duck]amix=inputs=2:duration=first:normalize=0,{norm}[aout]")
+        else:
+            graph += f";{mu},{norm}[aout]"
+    elif info.has_audio:
+        graph += f";{a_in}aresample=48000,aformat=channel_layouts=stereo,{norm}[aout]"
+    has_audio_out = info.has_audio or use_music
     intro = intro_image is not None and intro_image.exists()
     total = out_dur + (intro_s if intro else 0.0)
     audio_kbps = 128
@@ -243,16 +277,19 @@ def render_clip(src: Path, dst: Path, start: float, end: float, ass_file: Path |
     aenc = ["-c:a", "aac", "-b:a", f"{audio_kbps}k", "-ar", "48000", "-ac", "2"]
     body = dst.with_name(dst.stem + "_body.mp4") if intro else dst
     cmd += ["-filter_complex", graph, "-map", "[vout]"]
-    if info.has_audio:
+    if has_audio_out:
         cmd += ["-map", "[aout]"] + aenc
     cmd += enc + ["-t", f"{out_dur:.3f}", "-movflags", "+faststart", body.resolve()]
-    run(cmd, cwd=cwd, timeout=max(300.0, out_dur * 30))
+    run(cmd, cwd=cwd, timeout=max(300.0, out_dur * 30),
+        on_progress=(lambda pct: on_progress(pct * 0.97)) if on_progress else None, total_s=out_dur)
     if intro:
-        _prepend_intro(intro_image, body, dst, out_w, out_h, intro_s, info.has_audio, enc, aenc)
+        _prepend_intro(intro_image, body, dst, out_w, out_h, intro_s, has_audio_out, enc, aenc)
         body.unlink(missing_ok=True)
     size_mb = dst.stat().st_size / 1024 / 1024
-    log.info("rendered %s (%.1fs, %.1f MB, crop_x=%s, cuts=%d, zooms=%d, intro=%s)", dst.name, total, size_mb,
-             crop_x, n - 1, len(zoom_times or []), intro)
+    log.info("rendered %s (%.1fs, %.1f MB, crop_x=%s, spans=%d, zooms=%d, intro=%s, music=%s)", dst.name, total,
+             size_mb, crop_x, n, len(zoom_times or []), intro, use_music)
+    if on_progress:
+        on_progress(100.0)
     return dst
 
 
@@ -377,18 +414,55 @@ def jump_cut_spans(words, duration: float, min_gap: float = 0.7, pad: float = 0.
     return keep
 
 
-def remap_time(t: float, keep: list[tuple[float, float]] | None) -> float | None:
-    """Clip time -> output time after jump cuts (None if t falls in a removed gap)."""
+def remap_time(t: float, keep: list | None) -> float | None:
+    """Clip time -> output time after jump cuts (None if t falls in a removed gap).
+    Monotonic spans only; see remap_all for teases/replays where a moment plays twice."""
     if not keep:
         return t
     acc = 0.0
-    for a, b in keep:
+    for sp in keep:
+        a, b = sp[0], sp[1]
+        speed = sp[2] if len(sp) > 2 and sp[2] else 1.0
         if t < a:
             return None
         if t <= b:
-            return acc + (t - a)
-        acc += b - a
+            return acc + (t - a) / speed
+        acc += (b - a) / speed
     return None
+
+
+def remap_all(t: float, spans: list) -> list[float]:
+    """Every output time at which clip time t is shown (a payoff can appear in the tease, the body and the replay)."""
+    out, acc = [], 0.0
+    for sp in spans:
+        a, b = sp[0], sp[1]
+        speed = sp[2] if len(sp) > 2 and sp[2] else 1.0
+        if a <= t <= b:
+            out.append(acc + (t - a) / speed)
+        acc += (b - a) / speed
+    return out
+
+
+def spans_duration(spans: list) -> float:
+    return sum((sp[1] - sp[0]) / (sp[2] if len(sp) > 2 and sp[2] else 1.0) for sp in spans)
+
+
+def payoff_time(src: Path, start: float, duration: float, step: float = 0.25) -> tuple[float, float]:
+    """The clip's peak moment (seconds into the clip) and how strong it is (z-score).
+    Loudness counts double, sudden change in motion counts once; the first 2.5 s are ignored
+    (that's already the opening) so a tease of it is worth showing."""
+    motion, loud = activity(src, start, duration, step)
+    if not len(loud):
+        return duration * 0.6, 0.0
+
+    def z(x: np.ndarray) -> np.ndarray:
+        return (x - x.mean()) / (x.std() or 1.0)
+    k = max(1, int(1.0 / step))
+    score = np.convolve(2 * z(loud) + z(motion), np.ones(k) / k, mode="same")
+    lo = min(len(score) - 1, int(2.5 / step))
+    hi = max(lo + 1, len(score) - int(0.5 / step))
+    i = lo + int(np.argmax(score[lo:hi]))
+    return min(duration, (i + 0.5) * step), float(score[i])
 
 
 def make_preview(src: Path, dst: Path, max_mb: float = 45.0) -> Path:

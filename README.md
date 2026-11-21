@@ -3,7 +3,7 @@
 
 <p align="center"><img src="docs/screenshots/clips.jpg" alt="ClipForge clips page" width="900"></p>
 
-Paste a video link, upload a file or follow a live stream. ClipForge finds the most exciting moments, cuts them into Shorts / Reels / TikToks with word-by-word captions, a hook title, jump cuts, zoom punch-ins, a progress bar and a cover image, and scores how viral each one looks. You review them in the web app or in Telegram, and approved clips are posted to YouTube, Instagram, Facebook and TikTok (all of them, or just the ones you pick), now or on a schedule.
+Paste a video link, upload a file or follow a live stream. ClipForge finds the most exciting moments, cuts them into Shorts / Reels / TikToks with word-by-word captions, a hook title, a 2-second tease of the payoff, jump cuts, zoom punch-ins, a slow-motion replay that loops back to the start, a ducked background beat, a progress bar and a cover image, and scores how viral each one looks. Every post gets a detailed, search-friendly description with hashtags and tags for each platform. You review them in the web app or in Telegram, and approved clips are posted to YouTube, Instagram, Facebook and TikTok (all of them, or just the ones you pick), now or on a schedule.
 
 Everything runs on your computer: speech-to-text with Whisper, and the AI writer with Ollama or any cloud model you choose. No subscriptions.
 
@@ -22,7 +22,7 @@ Everything runs on your computer: speech-to-text with Whisper, and the AI writer
 9. [Earn from clipping](#8-earn-from-clipping)
 10. [Commands](#9-commands)
 11. [Settings (.env)](#10-settings-env)
-12. [Updating](#updating) · [Troubleshooting](#troubleshooting) · [Server / Docker](#run-on-a-server-docker) · [Tests](#tests)
+12. [Getting views](#getting-views) · [Updating](#updating) · [Troubleshooting](#troubleshooting) · [Server / Docker](#run-on-a-server-docker) · [Tests](#tests)
 
 ---
 
@@ -34,9 +34,12 @@ Everything runs on your computer: speech-to-text with Whisper, and the AI writer
 | **Shapes** | Vertical 9:16, portrait 4:5, square 1:1 and landscape 16:9, in any mix per job |
 | **Finding moments** | Audio excitement plus on-screen motion, optionally re-ranked by the AI from what is said |
 | **Viral look** | Pop captions (the spoken word in yellow, key words in green), a hook title for the first 3 s, jump cuts (only real dead air, never silent action), zoom punch-ins, a progress bar and your watermark |
+| **Viral edit** | Opens with a 2 s tease of the payoff moment ("wait for it"), punches in on the payoff, and ends on a zoomed slow-motion **INSTANT REPLAY** that loops straight back into the opening. Optional background beat (your own royalty-free tracks, or a built-in one ClipForge generates), ducked whenever someone talks |
+| **SEO & hashtags** | A detailed YouTube description (hook line, what happens, the phrases people search for, credit to the original creator, call to action, up to 20 hashtags ordered specific → niche → broad), YouTube tags, and shorter captions for Instagram (max 5 hashtags, Instagram's rule), TikTok and Facebook. **📝 Post text** shows exactly what each platform gets |
+| **Live progress** | Every job shows its steps as they happen: download % and speed, finding moments, transcribing, AI writing, payoff/cut/zoom plan, cover, render %, and for publishing: upload %, metadata, thumbnail, **visibility check** and the live link |
 | **Smart crop** | Follows faces (streamer cam, podcast guests) and action instead of always cropping the centre |
-| **Cover image** | Made for every clip and used as its first frame, so YouTube, Instagram and TikTok all show it as the thumbnail |
-| **AI writer** | Hook, title, caption, hashtags and a virality score, plus alternative hooks and titles to choose from |
+| **Cover image** | Made for every clip from the sharpest frame around the payoff (the reaction), with the hook in big bold text, and used as its first frame, so YouTube, Instagram and TikTok all show it as the thumbnail |
+| **AI writer** | Hook-first title with the searched keyword up front, hook, caption, description, search phrases, hashtags, the payoff second and a virality score, plus alternative hooks and titles to choose from. Without AI, ClipForge builds the same package from the source title and transcript |
 | **Edit before posting** | Change the title, hook, caption or cover in the app or with buttons in Telegram |
 | **Copyright check** | Gives each link, live stream and upload a risk level, says whether the original is likely monetised, and suggests what to do |
 | **Publishing** | YouTube (Shorts or normal videos), Instagram Reels, Facebook Reels and TikTok, posted now or on a schedule. Choose per clip which platforms get it, in the app or in Telegram |
@@ -122,7 +125,22 @@ The sidebar has five pages: **Create**, **Clips**, **Earn**, **Publishing** and 
    - **Zoom punch-ins:** quick zooms on key words
    - **Progress bar** along the bottom
    - **Cover as first frame:** makes the cover the thumbnail everywhere
+   - **Payoff tease:** the clip opens with 2 seconds of its best moment, under the hook, then plays from the start
+   - **Slow-mo replay:** ends on a zoomed, slowed-down replay of the payoff; because the clip opens on the same moment, it loops smoothly (replays count as views)
+   - **Background beat:** a quiet beat that ducks under speech. Put your own royalty-free/CC0 tracks (`.mp3 .wav .m4a`) in `data/music/` and ClipForge rotates through them; with none it uses a beat it generates itself. Never use commercial songs: Content ID mutes or blocks them
 5. Press **✦ Make clips** (or **● Start recording** for a live stream; press **■ Stop recording** on the job to end it).
+
+### Watch the progress
+
+Every video and every clip shows its steps live, so you always know what it's doing:
+
+<p align="center"><img src="docs/screenshots/progress.jpg" alt="Live steps while a clip renders and publishes" width="700"></p>
+
+- **Video:** Download (percent, MB, speed, time left) → Find exciting moments → AI picks the best moments → Queue clips
+- **Clip:** Transcribe speech → Write title, hook, description & hashtags → Find the payoff, plan cuts, zooms & replay → Make thumbnail cover → Render (percent) → Send for review
+- **After Approve:** per platform, e.g. YouTube: Upload (percent) → Title, description, hashtags & tags → Thumbnail → Check visibility → Live link
+
+A finished list folds into one line ("✅ Clip made · 6/6 done"); click it to open the details. A step that needed a fallback shows ⚠️ with the reason (for example "AI failed, using automatic SEO"), and a failed step shows ❌ with the error.
 
 ### Review, edit and approve
 
@@ -134,6 +152,8 @@ On **Clips**, each video you submitted is a group with its copyright badge, and 
 | **Reject** | Deletes the clip |
 | **✎ Edit** | Change the title, hook, caption or cover (see below) |
 | **⬇ Video / ⬇ Cover** | Download the MP4 or the cover JPG |
+| **📝 Post text** | The exact YouTube title, description and tags, and the Instagram, TikTok and Facebook captions, with Copy buttons |
+| **🌍 Make public on YouTube** | Shown when a published clip is private or unlisted on YouTube. The Clips page also offers **Make them all public** and **Check visibility** for uploads made before this check existed |
 | **↻ Remake** | Make the clip again with a fresh AI hook, title and caption |
 | **Retry** | On a failed clip: render again, or publish again to the platforms that failed |
 
@@ -279,7 +299,11 @@ Each provider keeps its own key, so you can switch back and forth. Under **Your 
 4. Go to **Credentials → Create credentials → OAuth client ID → Desktop app** and download the JSON file.
 5. In ClipForge, open **Publishing**, upload the JSON, press **Connect YouTube**, sign in and allow access. If Google says the app is unverified, choose Advanced → continue; it's your own app.
 
-New Google projects can only post **private** videos until Google audits them; you can make them public in YouTube Studio. Clips up to 3 min that aren't landscape are posted as Shorts. The free quota allows about 6 uploads a day.
+Uploads are **public** by default (`YOUTUBE_PRIVACY=public`). A private or unlisted video gets no views, because nobody can find it.
+
+After every upload ClipForge asks YouTube who can actually see the video and shows it in the **Check visibility** step. Google locks uploads from Cloud projects that haven't passed its [API audit](https://support.google.com/youtube/answer/7300965) to private. If that happens, the step says so: fill in the free [audit form](https://support.google.com/youtube/contact/yt_api_form) and, until it's approved, download those clips (**⬇ Video**, **📝 Post text** → Copy) and upload them in the YouTube app.
+
+Clips up to 3 min that aren't landscape are posted as Shorts. The free quota allows about 6 uploads a day (one upload costs ~1,600 of 10,000 units). Custom thumbnails need a phone-verified channel ([youtube.com/verify](https://www.youtube.com/verify)); the cover is also the first frame, so Shorts show it either way.
 
 ### Instagram Reels
 
@@ -365,8 +389,10 @@ Most things are set in the app. `.env` holds secrets and defaults; restart after
 | `OUTPUT_FORMATS` | vertical | Default shape in the app: vertical, portrait, square or landscape (Telegram links can still name several) |
 | `CAPTION_STYLE` | pop | pop, classic, minimal or none |
 | `HOOK_OVERLAY`, `JUMP_CUTS`, `ZOOM_PUNCH`, `PROGRESS_BAR`, `COVER_INTRO` | true | Default extras |
+| `PAYOFF_TEASE`, `PAYOFF_REPLAY`, `BEAT` | true | Payoff tease at the start, slow-mo replay at the end, background beat |
+| `BEAT_VOLUME` | 0.12 | Beat loudness before ducking (0 to 1) |
 | `WHISPER_MODEL` | small | tiny, base, small, medium, large-v3 |
-| `YOUTUBE_PRIVACY` | private | private, unlisted or public |
+| `YOUTUBE_PRIVACY` | public | public, unlisted or private. Older `.env` files said `private`: change it to `public` |
 | `TIKTOK_PRIVACY` | SELF_ONLY | Unaudited TikTok apps can only post privately |
 | `DATA_DIR` | ./data | Where videos, the database and tokens are kept |
 
@@ -393,6 +419,7 @@ Then refresh the browser with Cmd+Shift+R.
 | Clip length slider stops at 60 s | An old `.env` has `CLIP_MAX_S=60`. Change it to `300` and restart |
 | "Connect YouTube, Instagram or TikTok" after Approve | No account is connected yet; see section 7 |
 | "Skipped: Facebook (Reels must be 90 s or shorter)" | Facebook only takes reels up to 90 s. Make shorter clips, or untick Facebook for long ones |
+| Clips get **zero views** | Open **Clips**: if the yellow box says uploads aren't public, press **Make them all public**. Check the **Check visibility** step of new uploads (Google may lock them to private until your project is audited, see section 7). Also see [Getting views](#getting-views) |
 | YouTube views don't load | Press **Connect YouTube** again (reading views needs a newer permission) |
 | `telegram-setup` waits forever | Stop `serve` first, then press **Start** in the bot within 5 minutes |
 | The bot doesn't answer | Check `TELEGRAM_BOT_TOKEN` and `TELEGRAM_OWNER_CHAT_ID` in `.env`, restart, and look for `Telegram bot is listening` in the log. The bot answers only its owner |
@@ -402,6 +429,18 @@ Then refresh the browser with Cmd+Shift+R.
 | A clip seems stuck rendering | Each render has a time limit and then fails with a message; press **Retry** |
 | Port 8000 in use | Run `pkill -f "app.cli serve"` and start again, or use `--port 8001` |
 | Anything else | Check `data/serve.log`. Tokens are masked in it, but don't share it publicly |
+
+## Getting views
+
+ClipForge does the packaging the big clip channels do: a hook in the first second, a payoff tease, captions, zooms, a replay that loops, a clear cover, and a description full of the words people search for. That raises the odds, but it doesn't guarantee views. These matter as much:
+
+- **Visibility:** a private or unlisted upload gets 0 views. ClipForge now checks this after every upload.
+- **Reused content:** clips of other creators' streams (for example a famous streamer's GTA marathon) compete with hundreds of other clippers, can be claimed or muted by Content ID, and YouTube can limit reach or monetisation of "reused content". Add something of your own (commentary, a reaction, a top-5 edit, context in the hook), credit the creator, and prefer creators who allow clipping (see **Earn**).
+- **A new channel** starts with little trust. Shorts are first shown to a small test audience; the share who keep watching instead of swiping away decides whether it is pushed further. Expect the first few weeks to be slow.
+- **One niche per channel**, so the audience YouTube finds for one clip likes the next one too.
+- **Consistency:** 1-3 clips every day, at the times your viewers are online (the schedule dialog has quick picks).
+- **Early engagement:** reply to the first comments, pin a question.
+- **Trending topics:** clip moments people are searching for this week.
 
 ## What is never committed
 

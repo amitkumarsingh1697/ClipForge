@@ -14,8 +14,12 @@ class MediaError(RuntimeError):
     pass
 
 
-def run(cmd: list[str], cwd: Path | None = None, timeout: float | None = None) -> str:
+def run(cmd: list[str], cwd: Path | None = None, timeout: float | None = None,
+        on_progress=None, total_s: float | None = None) -> str:
+    """on_progress(pct) gets 0-100 while ffmpeg works (needs total_s, the output length)."""
     log.debug("run: %s", " ".join(map(str, cmd)))
+    if on_progress is not None and total_s and str(cmd[0]) == "ffmpeg":
+        return _run_with_progress(cmd, cwd, timeout, on_progress, total_s)
     try:
         p = subprocess.run(list(map(str, cmd)), cwd=cwd, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired as e:  # a stuck ffmpeg must fail the job, not block the queue forever
@@ -23,6 +27,38 @@ def run(cmd: list[str], cwd: Path | None = None, timeout: float | None = None) -
     if p.returncode != 0:
         raise MediaError(f"{cmd[0]} failed ({p.returncode}): {p.stderr[-1500:]}")
     return p.stdout
+
+
+def _run_with_progress(cmd, cwd, timeout, on_progress, total_s: float) -> str:
+    import tempfile
+    import time
+
+    full = [str(cmd[0]), "-progress", "pipe:1", "-nostats", *map(str, cmd[1:])]
+    with tempfile.TemporaryFile(mode="w+") as err:
+        p = subprocess.Popen(full, cwd=cwd, stdout=subprocess.PIPE, stderr=err, text=True)
+        deadline = time.time() + timeout if timeout else None
+        try:
+            for line in p.stdout:  # key=value lines, a block about every 0.5 s
+                if line.startswith(("out_time_us=", "out_time_ms=")):
+                    try:
+                        us = int(line.split("=", 1)[1])
+                    except ValueError:
+                        continue
+                    try:
+                        on_progress(min(99.0, us / 1e6 / total_s * 100))
+                    except Exception:
+                        pass
+                if deadline and time.time() > deadline:
+                    p.kill()
+                    raise MediaError(f"{cmd[0]} timed out after {timeout:.0f}s")
+            rc = p.wait(timeout=max(5.0, (deadline - time.time()) if deadline else 60))
+        except subprocess.TimeoutExpired as e:
+            p.kill()
+            raise MediaError(f"{cmd[0]} timed out after {timeout:.0f}s") from e
+        if rc != 0:
+            err.seek(0)
+            raise MediaError(f"{cmd[0]} failed ({rc}): {err.read()[-1500:]}")
+    return ""
 
 
 @dataclass

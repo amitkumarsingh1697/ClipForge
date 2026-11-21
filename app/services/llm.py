@@ -170,16 +170,33 @@ def parse_json(text: str) -> dict:
 
 
 META_SYSTEM = (
-    "You are a viral short-form video editor (YouTube Shorts, Instagram Reels, TikTok). From what is said in a clip, "
-    "write: a HOOK of 3-7 words shown big on screen in the first 3 seconds (curiosity gap, tension or a bold claim, "
-    "e.g. 'He did NOT expect this', 'Wait for the ending'); a TITLE under 70 characters that makes people tap "
-    "(no lies, at most one emoji); a CAPTION of 1-2 short sentences ending with a question or call to comment; "
-    "3-6 relevant HASHTAGS; 2-5 KEYWORDS from the transcript worth highlighting in the captions; and VIRALITY, "
-    "your honest 0-100 estimate of how well this clip would perform on its own. Also give 2 ALT_HOOKS and "
-    "2 ALT_TITLES in different styles (question, bold claim, emotion) so the editor can A/B test. "
+    "You are a viral short-form video editor and YouTube SEO expert (YouTube Shorts, Instagram Reels, TikTok). "
+    "From what is said in a clip (with [seconds] markers), write:\n"
+    "HOOK: 3-7 words shown big on screen in the first seconds. Curiosity gap, tension or a bold claim that the clip "
+    "pays off ('He did NOT expect this', 'Wait for the ending', 'Worst mistake ever?'). No spoilers.\n"
+    "TITLE: under 60 characters, hook-first, with the most searched keyword (the person, game or show name) in the "
+    "first 40 characters, at most one emoji, no lies.\n"
+    "CAPTION: one punchy line ending with a question that makes people comment.\n"
+    "DESCRIPTION: 2-3 sentences describing what happens, naturally using the words people search for (names, game "
+    "or show, the event, 'funny moments', 'reaction', 'highlights').\n"
+    "SEARCH_PHRASES: 8-12 phrases people actually type into YouTube search to find this (e.g. 'kai cenat gta 6', "
+    "'gta 6 funny moments').\n"
+    "HASHTAGS: 10-15, most specific first (names, game/show), then niche, then broad (#gaming, #funny).\n"
+    "KEYWORDS: 2-5 words from the transcript worth highlighting in captions.\n"
+    "PAYOFF_SECOND: the second (from the markers) where the funniest, most shocking or most satisfying moment "
+    "happens, or null if you can't tell.\n"
+    "VIRALITY: your honest 0-100 estimate of how this clip would perform on its own.\n"
+    "Also 2 ALT_HOOKS and 2 ALT_TITLES in different styles (question, bold claim, emotion) for A/B tests.\n"
     "Reply with JSON only: {\"hook\": str, \"title\": str, \"alt_hooks\": [str], \"alt_titles\": [str], "
-    "\"caption\": str, \"hashtags\": [str], \"keywords\": [str], \"virality\": int}."
+    "\"caption\": str, \"description\": str, \"search_phrases\": [str], \"hashtags\": [str], "
+    "\"keywords\": [str], \"payoff_second\": number|null, \"virality\": int}."
 )
+
+
+def _str_list(v, n: int) -> list[str]:
+    if isinstance(v, str):
+        v = re.split(r"[,\n]", v)
+    return [" ".join(str(x).strip().strip('"').split()) for x in (v or []) if str(x).strip()][:n]
 
 
 def clip_metadata(transcript: str, source_title: str, fmt: str, cfg: dict | None = None,
@@ -188,7 +205,7 @@ def clip_metadata(transcript: str, source_title: str, fmt: str, cfg: dict | None
                  + "; ".join(a for a in avoid if a) + "\n") if avoid else ""
     user = (avoid_txt + f"Source video title: {source_title or 'unknown'}\n"
             f"Clip format: {fmt}\n"
-            f"What is said in the clip (may be empty if it's all action):\n{transcript[:3000] or '(no speech)'}")
+            f"What is said in the clip (may be empty if it's all action):\n{transcript[:3500] or '(no speech)'}")
     d = chat_json(META_SYSTEM, user, cfg, client)
     title = str(d.get("title") or "").strip().strip('"')[:100]
     tags = d.get("hashtags") or []
@@ -202,6 +219,11 @@ def clip_metadata(transcript: str, source_title: str, fmt: str, cfg: dict | None
         vir = max(0, min(100, int(float(d.get("virality")))))
     except (TypeError, ValueError):
         vir = None
+    try:
+        payoff = float(d.get("payoff_second")) if d.get("payoff_second") is not None else None
+    except (TypeError, ValueError):
+        payoff = None
+
     def short_hook(x) -> str:
         return " ".join(str(x or "").strip().strip('"').split()[:9])
 
@@ -211,8 +233,12 @@ def clip_metadata(transcript: str, source_title: str, fmt: str, cfg: dict | None
     hooks = list(dict.fromkeys(h for h in [hook, *(short_hook(x) for x in (alt_h if isinstance(alt_h, list) else []))] if h))
     titles = list(dict.fromkeys(t for t in [title, *(str(x).strip().strip('"')[:100] for x in
                                                      (alt_t if isinstance(alt_t, list) else []))] if t))
-    return {"title": title, "hook": hook, "hook_options": hooks[:3], "title_options": titles[:3], "caption": str(d.get("caption") or "").strip()[:1500],
-            "hashtags": tags[:8], "keywords": [str(k).strip() for k in kws if str(k).strip()][:6], "virality": vir}
+    return {"title": title, "hook": hook, "hook_options": hooks[:3], "title_options": titles[:3],
+            "caption": str(d.get("caption") or "").strip()[:1500],
+            "description": str(d.get("description") or "").strip()[:1500],
+            "search_phrases": _str_list(d.get("search_phrases"), 12),
+            "hashtags": tags[:15], "keywords": [str(k).strip() for k in kws if str(k).strip()][:6],
+            "payoff_second": payoff, "virality": vir}
 
 
 RANK_SYSTEM = (
