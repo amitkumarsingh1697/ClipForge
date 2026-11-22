@@ -17,3 +17,8 @@ data/settings.json
 # credentials
 secrets/
 client_secret*.json
+
+# pitch deck build output
+pitch-deck/source/node_modules/
+pitch-deck/source/out/
+pitch-deck/source/frames_tmp/

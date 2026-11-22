@@ -442,6 +442,10 @@ ClipForge does the packaging the big clip channels do: a hook in the first secon
 - **Early engagement:** reply to the first comments, pin a question.
 - **Trending topics:** clip moments people are searching for this week.
 
+## Client pitch deck
+
+[`pitch-deck/`](pitch-deck/) holds a 24-slide client pitch deck for selling ClipForge clipping (PowerPoint with Morph transitions and builds, a PDF edition, a design guide, a presenter script, an asset inventory and technical notes), plus the scripts that generate it in `pitch-deck/source/`. Install the fonts in `pitch-deck/fonts/` before presenting, and fill in the contact line on slide 23. All numbers in it are illustrative.
+
 ## What is never committed
 
 `.env`, `data/` (videos, settings, database, and tokens in `data/secrets/`), `client_secret*.json`, and any Ollama or model files (`.ollama/`, `models/`, `*.gguf`, `*.safetensors`, `*.bin`) are all in `.gitignore`.
