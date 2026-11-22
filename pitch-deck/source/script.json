@@ -1,0 +1,342 @@
+[
+ {
+  "title": "Your best moments, everywhere",
+  "objective": "Open with confidence and set the promise of the meeting.",
+  "key": "ClipForge turns long video into a steady flow of ready-to-post short clips, and the client approves every one.",
+  "notes": "Let the cover animate in before speaking. Introduce yourself in one sentence, then say what the next 20 minutes are for: showing how the hours of video they already have can become daily short clips without hiring an editing team. Point at the screens on the right: they are the real product, not a mock-up.",
+  "points": [
+   "We are here to talk about the video you have already made, not new production.",
+   "Everything on screen is the working product.",
+   "You stay in control: nothing is posted without your approval."
+  ],
+  "transition": "Let me start with the whole story on one slide.",
+  "duration": "1 min"
+ },
+ {
+  "title": "One link in. A week of on-brand short clips out",
+  "objective": "Give decision-makers the full picture in under two minutes.",
+  "key": "ClipForge solves the hour-per-clip bottleneck for anyone with long-form video.",
+  "notes": "Walk the four rows top to bottom. Stress that the hour-per-clip figure is an illustrative estimate that the pilot will measure. Finish on the value statement in the bottom-right box and pause.",
+  "points": [
+   "What it is: a clipping engine for any video or live stream.",
+   "The problem: about an hour of hands-on work per clip (illustrative).",
+   "Who it serves: streamers, podcasters, creators, brands, agencies.",
+   "Why it matters: short-form feeds are where new viewers find creators."
+  ],
+  "transition": "To see why this matters, look at where audiences are today.",
+  "duration": "1.5 min"
+ },
+ {
+  "title": "Audiences discover creators in 30 seconds. Creators publish in hours",
+  "objective": "Frame the landscape: long-form creation vs short-form discovery.",
+  "key": "Every short-form platform has its own rules, which multiplies the work of each clip.",
+  "notes": "Contrast the left card (how content is made) with the four platform tiles (where it is discovered). The rules on each tile are the real limits ClipForge works within. Mention that creators and brands now pay clippers per 1,000 views through marketplaces, which shows how much value sits in good clips. Do not quote market-size numbers; we have not sourced any.",
+  "points": [
+   "Content is made long: streams, podcasts, gameplay.",
+   "Discovery happens in short feeds: Shorts, Reels, TikTok, Facebook Reels.",
+   "Each feed has different length, format and hashtag rules.",
+   "Paid clipping campaigns exist because clips drive discovery."
+  ],
+  "transition": "So what actually stands in the way?",
+  "duration": "1.5 min"
+ },
+ {
+  "title": "The best 30 seconds are buried somewhere in six hours",
+  "objective": "Make the audience feel the problem.",
+  "key": "Five manual jobs stand between a long video and one good clip.",
+  "notes": "Let the timeline wipe across, then point to the thin pink slivers: that is how little of a long stream is clip-worthy (illustrative). Then walk the five cards: finding, reframing, captioning, packaging, posting. Ask the client which of these takes most of their time today and note the answer for the pilot.",
+  "points": [
+   "Finding the moment means watching or scrubbing hours of footage.",
+   "Reframing wide video to vertical without losing the face or action.",
+   "Captions must be transcribed, timed and styled.",
+   "Hook, title, cover and hashtags decide whether anyone clicks.",
+   "Four platforms, four uploads, every day."
+  ],
+  "transition": "Put a number on that and it gets expensive quickly.",
+  "duration": "2 min"
+ },
+ {
+  "title": "By hand, one clip costs about an hour, and the clock resets daily",
+  "objective": "Quantify the cost with transparent, clearly labelled assumptions.",
+  "key": "About 72 minutes of hands-on work per clip, roughly 25 hours a week at three clips a day (illustrative).",
+  "notes": "Say clearly that these minutes are an illustrative estimate for one experienced editor, not measured data. Invite the client to replace them with their own numbers. Then cover the hidden costs on the right: missed timing, uneven quality and copyright surprises.",
+  "points": [
+   "Breakdown: find 20, cut and reframe 10, captions 15, hook/title/cover 10, description 5, uploads 12.",
+   "21 clips a week is about 25 hours of editing.",
+   "Hidden costs: missed trends, inconsistent packaging, claims and strikes.",
+   "We will measure your real numbers in the pilot."
+  ],
+  "transition": "This is the work ClipForge was built to take over.",
+  "duration": "1.5 min"
+ },
+ {
+  "title": "Introducing ClipForge",
+  "objective": "Reveal the solution with impact.",
+  "key": "Paste a link. Approve the best. ClipForge does the rest.",
+  "notes": "Pause on the reveal. Read the line once, slowly. Point out the three chips: it runs on your computer, it takes any video or live stream, and you approve every post.",
+  "points": [
+   "One promise: from a link to finished, packaged clips.",
+   "Local-first, with no subscription needed.",
+   "Human approval is built in, not bolted on."
+  ],
+  "transition": "Here is what it looks like in practice.",
+  "duration": "1 min"
+ },
+ {
+  "title": "A real product, not a concept: every screen is ClipForge today",
+  "objective": "Build credibility by showing the working product.",
+  "key": "The client sees the actual interface: create, review, and live progress.",
+  "notes": "Walk the three numbered callouts. Mention that the footage in the screenshots is generated demo content, so no third-party video is shown. If presenting live, offer to switch to the running app after the deck.",
+  "points": [
+   "Create: link, upload or live stream; shape, length and style.",
+   "Clips: scored, captioned and packaged, ready to approve, edit or remake.",
+   "Live progress: every step visible, from download to live link."
+  ],
+  "transition": "Behind those screens, six manual jobs have become one pipeline.",
+  "duration": "1.5 min"
+ },
+ {
+  "title": "Six manual jobs become one supervised pipeline",
+  "objective": "Explain how the solution maps onto each pain point.",
+  "key": "Each stage that used to be manual now has an engine, and review stays human.",
+  "notes": "Read across the six stages. For each one contrast the grey 'before' line with the 'with ClipForge' line. Land on Review: that is where the client keeps control.",
+  "points": [
+   "Find: audio excitement plus motion, re-ranked by AI.",
+   "Reframe: smart crop follows faces and action.",
+   "Edit: captions, hook, jump cuts, zooms, payoff tease, replay.",
+   "Package: titles, descriptions, tags, hashtags per platform.",
+   "Review: web app or Telegram.",
+   "Publish: four platforms, now or scheduled."
+  ],
+  "transition": "From the user's side, it comes down to four steps.",
+  "duration": "2 min"
+ },
+ {
+  "title": "From link to live post in four steps",
+  "objective": "Show the user journey simply.",
+  "key": "The user's job shrinks to choosing a source and approving results.",
+  "notes": "Walk the four cards left to right. Emphasise that step 2 runs unattended and shows its progress live, and that steps 3 and 4 can be done from a phone.",
+  "points": [
+   "Drop in a source and optionally run the copyright check.",
+   "ClipForge finds and edits while you do other work.",
+   "Review and refine titles, hooks and covers.",
+   "Publish to chosen platforms now or on a schedule."
+  ],
+  "transition": "Each of those steps is powered by a feature aimed at one bottleneck.",
+  "duration": "1.5 min"
+ },
+ {
+  "title": "Every feature exists to remove one specific bottleneck",
+  "objective": "Connect features to value instead of listing them.",
+  "key": "Six capability groups, each removing a named piece of manual work.",
+  "notes": "Do not read every card. Pick the two that match the pain the client named on the problem slide and spend your time there.",
+  "points": [
+   "Moment finder removes hours of scrubbing.",
+   "Smart crop removes manual reframing.",
+   "Viral edit removes repetitive editing.",
+   "SEO packaging removes blank-page copywriting.",
+   "Copyright check removes blind reposting.",
+   "Multi-platform publishing removes four separate uploads."
+  ],
+  "transition": "Here is what all of that produces: one finished clip.",
+  "duration": "2 min"
+ },
+ {
+  "title": "Every clip ships with the packaging top clip channels rely on",
+  "objective": "Make the output tangible.",
+  "key": "A ClipForge clip is finished: hook, captions, payoff, replay, cover and score.",
+  "notes": "Use the three frames as a mini timeline: the cover and hook open the clip, pop captions carry it, and the slow-motion replay loops back into the opening. Mention the virality score as a guide for what to post first, not a guarantee.",
+  "points": [
+   "Hook title in the first 3 seconds and a 2-second payoff tease.",
+   "Word-by-word captions with highlighted key words.",
+   "Zoom punch-ins, progress bar and watermark.",
+   "Slow-mo replay that loops to the start.",
+   "Cover made from the reaction frame; virality score 0 to 100."
+  ],
+  "transition": "And reviewing these takes seconds, from wherever you are.",
+  "duration": "1.5 min"
+ },
+ {
+  "title": "Review from your desk or your phone. Nothing posts without your yes",
+  "objective": "Show ease of use and control.",
+  "key": "Approval is one tap in the web app or Telegram, with per-clip platform choice.",
+  "notes": "Point to the phone and the Telegram message. The message is the real format the bot sends (reproduced from the product documentation). Highlight that edits do not require re-editing: change the hook or cover and the clip re-renders in about a minute.",
+  "points": [
+   "One-tap approve or reject.",
+   "Swap title, hook or cover without opening an editor.",
+   "Choose platforms per clip.",
+   "The bot works on home Wi-Fi with no public address."
+  ],
+  "transition": "Put side by side, the workday changes completely.",
+  "duration": "1.5 min"
+ },
+ {
+  "title": "The same clip, two very different workdays",
+  "objective": "Visual before/after comparison.",
+  "key": "About 72 minutes of hands-on work becomes about 7 minutes of review (illustrative).",
+  "notes": "Read the left column quickly, then the right. Stress that machine time still exists but runs unattended, so the person is free during it. Both totals are illustrative and will be measured in the pilot.",
+  "points": [
+   "Before: six manual steps, about 72 minutes.",
+   "After: paste, review, approve: about 7 minutes hands-on.",
+   "Rendering runs in the background."
+  ],
+  "transition": "Who benefits most? Here are four typical situations.",
+  "duration": "1.5 min"
+ },
+ {
+  "title": "Built for anyone sitting on hours of unclipped video",
+  "objective": "Help each client type see themselves in the product.",
+  "key": "Streamers, podcasters, brands running campaigns, and clipping studios all fit.",
+  "notes": "These are illustrative scenarios built from real product features, not case studies. Ask which one is closest to the client and go deeper on that card.",
+  "points": [
+   "Streamer: highlights cut while the stream is live.",
+   "Podcaster: face-following crop and word-by-word captions.",
+   "Brand or agency: campaign hashtags, post links and earnings estimates.",
+   "Clipping studio: several channels, one niche each, scheduled posting."
+  ],
+  "transition": "Across all of them, the effect on the business is similar.",
+  "duration": "2 min"
+ },
+ {
+  "title": "Clipping stops being a daily chore and becomes a supervised system",
+  "objective": "Summarise operational and business impact.",
+  "key": "Faster, more consistent, wider reach, lower cost, with capacity that scales per person.",
+  "notes": "Walk the four tiles, then the chart: in a two-hour daily block, one person could supervise roughly 17 clips instead of about 2 (illustrative, based on the same 72 vs 7 minute assumption).",
+  "points": [
+   "Hands-on time per clip drops from about an hour to minutes (illustrative).",
+   "Same packaging standard on every clip.",
+   "One approval reaches up to four platforms.",
+   "Runs on your own computer; local AI costs nothing per clip."
+  ],
+  "transition": "Let's turn that into a business case you can check yourself.",
+  "duration": "1.5 min"
+ },
+ {
+  "title": "A transparent model: hours saved times your cost of an hour",
+  "objective": "Give a simple, auditable ROI framework.",
+  "key": "At illustrative inputs, about 23 hours and about $455 of editing time saved per week.",
+  "notes": "Walk the formula, then the example inputs. Every input is a placeholder: invite the client to give their own numbers now, or agree to measure them in the pilot. Mention costs honestly: the software is free and local, cloud AI is optional, and our service fee is agreed separately.",
+  "points": [
+   "Weekly hours saved = clips per week x (manual minutes - review minutes) / 60.",
+   "Example: 21 clips, 72 vs 7 minutes, $20 an hour: about 22.75 hours and $455 a week.",
+   "Pilot measures real minutes, approval rate and views per clip."
+  ],
+  "transition": "So why ClipForge rather than another way of doing this?",
+  "duration": "2 min"
+ },
+ {
+  "title": "What sets ClipForge apart: where it runs and who stays in control",
+  "objective": "State substantiated differentiation.",
+  "key": "Local-first, any source including live, human approval, rights awareness, platform-native packaging, open and model-agnostic.",
+  "notes": "Only claim what is listed: each point is implemented in the product today. Avoid comparing against named competitors.",
+  "points": [
+   "Runs on your computer; your data and tokens stay with you.",
+   "Takes links, uploads and live streams.",
+   "Nothing posts without approval.",
+   "Copyright check on every source.",
+   "Follows each platform's rules.",
+   "Works with local Ollama or cloud models; 73 automated tests."
+  ],
+  "transition": "For the technical people in the room, here is what sits underneath.",
+  "duration": "1.5 min"
+ },
+ {
+  "title": "Proven open-source building blocks, assembled into one local pipeline",
+  "objective": "Give technical stakeholders confidence.",
+  "key": "Mature components (FFmpeg, Whisper, yt-dlp, FastAPI) run locally, with secure defaults.",
+  "notes": "Follow the arrows left to right: sources, engine, review, publish. Then the bottom strip: it listens only on the local machine by default, needs a token for network access, masks tokens in logs and never commits secrets. It can run as one process on a laptop or in Docker on a server.",
+  "points": [
+   "Sources: links via yt-dlp, uploads, live streams.",
+   "Engine: librosa + OpenCV, faster-whisper, Ollama or cloud LLM, FFmpeg.",
+   "Review: local web app and Telegram bot.",
+   "Publish: official YouTube, Instagram, Facebook and TikTok APIs.",
+   "Security defaults and two deployment options."
+  ],
+  "transition": "Being trustworthy also means being upfront about limits.",
+  "duration": "1.5 min"
+ },
+ {
+  "title": "What we tell every client before we start",
+  "objective": "Build trust by stating risks and limits.",
+  "key": "Copyright, platform limits, view uncertainty and AI review are handled openly.",
+  "notes": "Present this as professionalism, not as caveats. Each card has a mitigation. This slide usually raises trust rather than lowering it.",
+  "points": [
+   "Re-uploads can be claimed; we check rights and prefer creators who allow clipping.",
+   "Views are never guaranteed.",
+   "YouTube API allows about 6 uploads a day per project and may lock uploads to private until audited.",
+   "TikTok posts are private until its app audit; Facebook Reels must be 3 to 90 seconds.",
+   "AI drafts, people decide.",
+   "Hardware and setup needs."
+  ],
+  "transition": "Here's what exists now, and where it goes next.",
+  "duration": "1.5 min"
+ },
+ {
+  "title": "Shipping today, with a clear path to what's next",
+  "objective": "Separate existing capabilities from planned work.",
+  "key": "Most of the value is available now; the roadmap is clearly marked as planned or exploratory.",
+  "notes": "Be strict about the three columns: 'Available now' is implemented, 'Next' is planned, 'Exploring' is ideas only with no committed dates.",
+  "points": [
+   "Available now: the full pipeline shown today.",
+   "Next: cross-segment live highlights, panning crop, live chat signal, disk clean-up, hardening.",
+   "Exploring: multi-client workspaces, performance feedback loop, team approval roles."
+  ],
+  "transition": "Getting started is deliberately small.",
+  "duration": "1 min"
+ },
+ {
+  "title": "Start small: a two-week pilot, then scale what works",
+  "objective": "Show a low-risk adoption path.",
+  "key": "Discovery, setup, two-week pilot, review, then choose an engagement model.",
+  "notes": "Walk the timeline, then the two engagement models. Note that timing depends on platform approvals (Google, Meta, TikTok) that sit outside our control.",
+  "points": [
+   "Week 0: discovery call.",
+   "Week 1: setup, accounts and brand kit.",
+   "Weeks 1 to 2: daily clips for your approval.",
+   "Week 3: review results and decide.",
+   "Done-for-you clipping or your own ClipForge."
+  ],
+  "transition": "Why us to run it?",
+  "duration": "1.5 min"
+ },
+ {
+  "title": "We built the engine, we use it daily, and we stay accountable",
+  "objective": "Establish the team's credibility without invented credentials.",
+  "key": "End-to-end ownership, fast iteration, honesty by design.",
+  "notes": "Only use facts listed. The product was built end to end by our team, shipped through nine merged releases in November 2026, and has 73 automated tests. Do not mention clients or results we do not have.",
+  "points": [
+   "Built end to end: ingest to publishing.",
+   "Fast iteration: nine merged releases, 17 to 21 Nov 2026.",
+   "Honest by design: visibility checks and copyright warnings in the product.",
+   "Creator-first packaging.",
+   "Your data and accounts stay yours."
+  ],
+  "transition": "So, here's what we propose.",
+  "duration": "1.5 min"
+ },
+ {
+  "title": "Let's clip your next stream together",
+  "objective": "Make a clear, easy call to action.",
+  "key": "Send two or three recent videos; we clip them and review the results with you.",
+  "notes": "Ask directly for the next step and agree a date. Fill in the contact placeholders before sending this deck.",
+  "points": [
+   "Send 2 to 3 recent videos or your channel link.",
+   "We clip them with ClipForge and send them for your approval.",
+   "We review results together and agree the plan."
+  ],
+  "transition": "Close on the promise.",
+  "duration": "1 min"
+ },
+ {
+  "title": "Your best moments, everywhere.",
+  "objective": "End memorably.",
+  "key": "Every long video is a library of shorts waiting to be found.",
+  "notes": "Say the closing line, thank them, and stop talking. Leave this slide up during questions.",
+  "points": [
+   "Thank you.",
+   "Questions."
+  ],
+  "transition": "(End.)",
+  "duration": "0.5 min"
+ }
+]
