@@ -47,9 +47,11 @@ def is_network_error(msg: str) -> bool:
 
 
 def _ydl_opts(dest_dir: Path, max_height: int, force_ipv4: bool) -> dict:
+    long = round(max_height * 16 / 9)
     opts = {
         "outtmpl": str(dest_dir / "%(id)s.%(ext)s"),
-        "format": f"bv*[height<={max_height}]+ba/b[height<={max_height}]/bv*+ba/b",
+        # cap the long side, so vertical 1080x1920 videos still come in 1080p
+        "format": f"bv*[height<={long}][width<={long}]+ba/b[height<={long}][width<={long}]/bv*+ba/b",
         "merge_output_format": "mp4",
         "noplaylist": True,
         "quiet": True,
@@ -160,15 +162,58 @@ def probe_url(url: str) -> dict:
     raise ConnectionError(f"Couldn't reach the site to check this link: {str(last)[:200]}") from last
 
 
-def resolve_stream(url: str) -> str:
-    """Turn a channel/watch URL into a direct media URL ffmpeg can read."""
+# Live streams: YouTube sometimes offers combined HLS formats (video + audio in one .m3u8), but often only
+# separate video and audio streams. Try combined first, then a separate pair (ffmpeg reads both), then anything.
+# Vertical streams are 1080x1920, so cap the LONG side at 1920 (a height<=1080 cap would drop them to 480p).
+LIVE_FORMATS = ("b[vcodec!=none][acodec!=none][height<=1920][width<=1920]"
+                "/bv*[height<=1920][width<=1920]+ba/bv*+ba/b")
+
+
+def live_error_message(err: str, info: dict | None = None) -> str:
+    status = (info or {}).get("live_status")
+    if status == "is_upcoming" or "will begin" in err or "Premieres in" in err:
+        return "This live stream hasn't started yet. Try again when it is live."
+    if status in ("was_live", "not_live", "post_live"):
+        return "This stream isn't live any more. Paste it under Link (not Live) to clip the recording."
+    if "available formats" in err or "Requested format" in err:
+        return ("YouTube didn't offer a recordable format for this stream (often fixed by updating yt-dlp: "
+                "pip install -U yt-dlp). Details: " + err[:200])
+    return err[:300]
+
+
+def resolve_streams(url: str) -> tuple[list[str], dict]:
+    """Turn a channel/watch URL into the direct media URL(s) ffmpeg can read: one combined stream, or a video
+    and an audio stream. Returns (urls, http_headers)."""
     if DIRECT_MEDIA.search(url) or url.startswith(("rtmp://", "srt://", "file:")) or Path(url).exists():
-        return url
+        return [url], {}
     import yt_dlp
 
-    with yt_dlp.YoutubeDL({"quiet": True, "format": "best[height<=1080]/best", "noplaylist": True}) as ydl:
-        info = ydl.extract_info(url, download=False)
-    return info["url"]
+    base = {"quiet": True, "no_warnings": True, "noplaylist": True, "socket_timeout": 20}
+    info: dict = {}
+    last = ""
+    for fmt in (LIVE_FORMATS, None):  # None = let yt-dlp pick its default
+        opts = dict(base, **({"format": fmt} if fmt else {}))
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(url, download=False) or {}
+        except yt_dlp.utils.DownloadError as e:
+            last = str(e)
+            if "format" not in last.lower():
+                break
+            continue
+        fmts = info.get("requested_formats") or ([info] if info.get("url") else [])
+        urls = [f["url"] for f in fmts if f.get("url")]
+        if urls:
+            headers = dict((fmts[0].get("http_headers") or info.get("http_headers") or {}))
+            log.info("live %s: format %s (%s)", url, info.get("format_id"), info.get("live_status"))
+            return urls[:2], headers
+        last = "no stream URL in the site's answer"
+    raise ValueError(live_error_message(last, info))
+
+
+def resolve_stream(url: str) -> str:
+    """Back-compat: the first media URL."""
+    return resolve_streams(url)[0][0]
 
 
 def record_live(url: str, out_dir: Path, segment_s: int = 120, max_s: float = 6 * 3600,
@@ -179,16 +224,22 @@ def record_live(url: str, out_dir: Path, segment_s: int = 120, max_s: float = 6 
     segment starts on a keyframe so it can be cut later.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
-    src = resolve_stream(url)
-    cmd = ["ffmpeg", "-y", "-v", "error", "-reconnect", "1", "-reconnect_streamed", "1",
-           "-reconnect_delay_max", "10"] if src.startswith("http") else ["ffmpeg", "-y", "-v", "error"]
-    if realtime_input:
-        cmd += ["-re"]
-    cmd += ["-i", src, "-t", str(int(max_s)), "-map", "0:v:0", "-map", "0:a:0?", "-c", "copy",
+    urls, headers = resolve_streams(url)
+    cmd = ["ffmpeg", "-y", "-v", "error"]
+    for src in urls:
+        if src.startswith("http"):
+            cmd += ["-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "10"]
+            if headers:
+                cmd += ["-headers", "".join(f"{k}: {v}\r\n" for k, v in headers.items())]
+        if realtime_input:
+            cmd += ["-re"]
+        cmd += ["-i", src]
+    audio = "1:a:0" if len(urls) > 1 else "0:a:0?"
+    cmd += ["-t", str(int(max_s)), "-map", "0:v:0", "-map", audio, "-c", "copy",
             "-f", "segment", "-segment_time", str(segment_s), "-reset_timestamps", "1",
             "-segment_format", "mp4", "-segment_format_options", "movflags=+faststart",
             str(out_dir / "seg_%05d.mp4")]
-    log.info("recording live %s -> %s", url, out_dir)
+    log.info("recording live %s -> %s (%d input%s)", url, out_dir, len(urls), "s" if len(urls) > 1 else "")
     return subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
 
 
@@ -205,9 +256,11 @@ def finished_segments(out_dir: Path, proc: subprocess.Popen, poll_s: float = 5.0
                 seen.add(s.name)
                 yield s
         if not running:
-            if proc.returncode not in (0, None):
+            if proc.returncode not in (0, None) and not should_stop():
                 err = proc.stderr.read() if proc.stderr else ""
                 log.warning("live recorder exited %s: %s", proc.returncode, err[-500:])
+                if not seen:  # it never recorded anything: say why instead of finishing quietly
+                    raise RuntimeError(f"recording stopped before the first segment: {err.strip()[-300:] or proc.returncode}")
             return
         if should_stop():
             proc.terminate()

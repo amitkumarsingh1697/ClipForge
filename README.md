@@ -59,7 +59,7 @@ You need a Mac (Apple Silicon or Intel), about 5 GB of free space, and [Homebrew
 
 ```bash
 # 1. Tools. ffmpeg-full includes libass, which captions need.
-brew install ffmpeg-full python@3.12 git
+brew install ffmpeg-full python@3.12 git deno   # deno lets yt-dlp see all YouTube formats
 brew link --force ffmpeg-full
 ffmpeg -filters | grep " ass "        # must print a line, otherwise captions are skipped
 
@@ -417,6 +417,8 @@ Then refresh the browser with Cmd+Shift+R.
 
 | Problem | Fix |
 |---|---|
+| Live stream: "Requested format is not available" / "list of available formats" | Fixed in the latest ClipForge: YouTube often sends live streams as separate video and audio tracks, which ClipForge now records together (vertical streams in 1080p). Update ClipForge, then `pip install -U yt-dlp` and `brew install deno` |
+| Live stream: "hasn't started yet" or "isn't live any more" | Wait until it is live, or paste a finished stream under **Link** to clip the recording |
 | Captions missing, "ffmpeg has no libass" | `brew install ffmpeg-full && brew link --force ffmpeg-full`, then restart |
 | Captions empty (0 words) | Run `pip install -r requirements.txt` again (PyAV must be below version 19) |
 | `SSL: UNEXPECTED_EOF`, or downloads from YouTube/Twitch/Instagram fail | Your network (office or managed Wi-Fi) blocks those sites. Use a hotspot or VPN, or download the video and use **Upload** |
