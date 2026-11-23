@@ -60,9 +60,16 @@ class Settings(BaseSettings):
     caption_font: str = "DejaVu Sans"
 
     # --- live streams -------------------------------------------------------
-    live_segment_s: int = 120
+    # Live streams are not recorded in full: only a rolling buffer of the last LIVE_BUFFER_S seconds is on disk,
+    # and the window around each chat spike (or audio spike, without chat) is saved as a clip.
+    live_segment_s: int = 10  # buffer piece length
+    live_buffer_s: int = 300
     live_max_hours: float = 6.0
-    live_highlight_ratio: float = 1.6  # segment peak vs rolling median to cut a clip
+    live_chat: bool = True  # watch YouTube/Twitch live chat for spikes
+    live_chat_ratio: float = 2.5  # chat speed vs its recent median that counts as a spike
+    live_highlight_ratio: float = 1.6  # fallback: segment audio peak vs rolling median
+    # Finished YouTube videos/streams: use the "Most replayed" graph and download only its peaks
+    most_replayed: bool = True
 
     # --- Telegram -------------------------------------------------------------
     telegram_bot_token: str = ""

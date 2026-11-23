@@ -141,9 +141,9 @@ def test_instagram_resumable_flow(tmp_path, monkeypatch):
     assert [p for _, _, p in log][-1].endswith("media_publish")
 
 
-def test_live_recording_cuts_highlight_segments(tmp_path, no_whisper, monkeypatch):
+def test_live_recording_keeps_only_spike_moments(tmp_path, no_whisper, monkeypatch):
     from tests.conftest import make_video
-    # 80 s "stream": quiet for 60 s, loud 62-72 s; 10 s segments.
+    # 80 s "stream": quiet for 60 s, loud 62-72 s; no chat for a local file, so audio is the spike signal.
     src = make_video(tmp_path / "stream.mp4", duration=80, burst=(62, 72))
     monkeypatch.setenv("LIVE_SEGMENT_S", "10")
     from app.config import get_settings
@@ -156,11 +156,62 @@ def test_live_recording_cuts_highlight_segments(tmp_path, no_whisper, monkeypatc
     for cid in clips:
         c = store.get(cid)
         assert c["status"] == "awaiting_approval", c["error"]
-        assert "seg_0000" in c["raw_path"]
-    segs = sorted(int(store.get(c)["raw_path"][-9:-4]) for c in clips)
-    # Stream-copy segments split on keyframes, so boundaries drift a few seconds;
-    # what matters is that only segments overlapping the 62-72 s burst became clips.
-    assert segs and min(segs) >= 5, segs
+        assert "moment_" in c["raw_path"] and "louder" in c["meta"]["live_reason"]
+        # only windows around the 62-72 s burst were kept (segments split on keyframes, so allow drift)
+        assert 30 <= c["meta"]["stream_offset_s"] <= 75, c["meta"]["stream_offset_s"]
+    live_dir = get_settings().live_dir / job
+    assert not list(live_dir.glob("buf_*.mp4"))  # the rolling buffer is thrown away
+    assert store.get(job)["meta"]["progress"]["stages"][1]["state"] == "done"
+
+
+def test_chat_spike_detector():
+    from app.services.moments import SpikeDetector
+
+    det = SpikeDetector(window_s=10, ratio=2.5, min_msgs=8, warmup_s=60, cooldown_s=45)
+    msgs, spikes = [], []
+    for sec in range(0, 240):
+        n = 1 if sec % 2 == 0 else 0  # ~0.5 msg/s normal chat
+        if 180 <= sec < 190:
+            n = 6  # everyone types at once
+        msgs += [(1000.0 + sec, "LMAO no way 💀" if sec >= 180 else "hello") for _ in range(n)]
+        sp = det.check(msgs, now=1000.0 + sec)
+        if sp:
+            spikes.append(sec)
+    assert spikes and 180 <= spikes[0] <= 190 and len(spikes) == 1, spikes
+
+
+def test_most_replayed_peaks():
+    from app.services.moments import heatmap_peaks
+
+    hm = [{"start_time": i * 36.0, "end_time": (i + 1) * 36.0, "value": 0.1} for i in range(100)]
+    hm[40]["value"], hm[41]["value"], hm[75]["value"] = 1.0, 0.9, 0.7
+    peaks = heatmap_peaks(hm, 3600, 30, 3)
+    assert len(peaks) == 2  # 40 and 41 are the same moment
+    assert peaks[0][0] < 40 * 36 + 18 < peaks[0][1] and peaks[1][0] < 75 * 36 + 18 < peaks[1][1]
+    assert all(round(b - a) == 30 for a, b, _ in peaks)
+    assert heatmap_peaks(None, 3600, 30, 3) == []
+
+
+def test_link_downloads_only_most_replayed_parts(sample_video, monkeypatch, tmp_path):
+    from app.services import ingest, moments
+
+    hm = [{"start_time": i * 36.0, "end_time": (i + 1) * 36.0, "value": 0.1} for i in range(100)]
+    hm[50]["value"] = 1.0
+    monkeypatch.setattr(ingest, "probe_url", lambda u: {"id": "v1", "title": "Big Stream", "duration": 3600,
+                                                        "heatmap": hm, "uploader": "Streamer"})
+    asked = {}
+
+    def fake_sections(url, ranges, dest, **k):
+        asked["ranges"] = ranges
+        return [sample_video]
+    monkeypatch.setattr(moments, "download_sections", fake_sections)
+    monkeypatch.setattr(ingest, "download_url", lambda *a, **k: (_ for _ in ()).throw(AssertionError("full download")))
+    job = pipeline.submit("url", "https://www.youtube.com/watch?v=v1", options={"clips": 2, "clip_seconds": 15})
+    j = get_store().get(job)
+    assert j["status"] == "done", j["error"]
+    assert len(asked["ranges"]) == 1 and asked["ranges"][0][0] < 50 * 36 + 18 < asked["ranges"][0][1]
+    assert sum(b - a for a, b in asked["ranges"]) < 60  # a minute, not the whole hour
+    assert j["meta"]["moment_source"] == "most_replayed" and get_store().children(job)
 
 
 def test_formats_option_makes_one_clip_per_format(sample_video, no_whisper):
@@ -301,3 +352,20 @@ def test_live_resolver_handles_separate_streams_and_bad_formats(monkeypatch):
     assert calls[0] and calls[1] is None
     assert "hasn't started" in ingest.live_error_message("x", {"live_status": "is_upcoming"})
     assert "Link" in ingest.live_error_message("x", {"live_status": "was_live"})
+
+
+def test_youtube_chat_lines_are_read():
+    import json
+    import time
+
+    from app.services.moments import YouTubeChat
+
+    from pathlib import Path
+
+    c = YouTubeChat("https://youtube.com/watch?v=x", Path("/tmp"))
+    now_us = int(time.time() * 1e6)
+    line = {"replayChatItemAction": {"actions": [{"addChatItemAction": {"item": {"liveChatTextMessageRenderer": {
+        "message": {"runs": [{"text": "NO WAY"}, {"emoji": {"emojiId": "💀", "shortcuts": [":skull:"]}}]},
+        "timestampUsec": str(now_us)}}}}]}, "isLive": True}
+    c._parse(json.dumps(line).encode())
+    assert len(c.messages) == 1 and c.messages[0][1] == "NO WAY 💀" and abs(c.messages[0][0] - now_us / 1e6) < 1
