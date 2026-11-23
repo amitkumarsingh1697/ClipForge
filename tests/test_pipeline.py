@@ -267,3 +267,37 @@ def test_non_network_download_error_is_not_retried(monkeypatch, tmp_path):
     with pytest.raises(yt_dlp.utils.DownloadError):
         ingest.download_url("https://www.youtube.com/watch?v=x", tmp_path)
     assert calls == [1]
+
+
+def test_live_resolver_handles_separate_streams_and_bad_formats(monkeypatch):
+    import yt_dlp
+
+    from app.services import ingest
+
+    calls = []
+
+    class FakeYDL:
+        def __init__(self, opts):
+            self.opts = opts
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def extract_info(self, url, download=False):
+            calls.append(self.opts.get("format"))
+            if self.opts.get("format"):  # our format string fails, yt-dlp's default works
+                raise yt_dlp.utils.DownloadError("Requested format is not available. Use --list-formats for a "
+                                                 "list of available formats")
+            return {"live_status": "is_live", "format_id": "299+140",
+                    "requested_formats": [{"url": "https://v.example/video.m3u8", "http_headers": {"User-Agent": "x"}},
+                                          {"url": "https://v.example/audio.m3u8"}]}
+
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", FakeYDL)
+    urls, headers = ingest.resolve_streams("https://www.youtube.com/watch?v=abc")
+    assert urls == ["https://v.example/video.m3u8", "https://v.example/audio.m3u8"] and headers["User-Agent"] == "x"
+    assert calls[0] and calls[1] is None
+    assert "hasn't started" in ingest.live_error_message("x", {"live_status": "is_upcoming"})
+    assert "Link" in ingest.live_error_message("x", {"live_status": "was_live"})
