@@ -237,10 +237,19 @@ def handle_update(update: dict, on_approve: Callable[[str], str], on_reject: Cal
         action, _, rest = (cq.get("data") or "").partition(":")
         msg = cq.get("message") or {}
         chat_id = (msg.get("chat") or {}).get("id") or owner
-        final = action in ("a", "r")
+        final = action in ("a", "r", "f")
         try:
             if action == "a":
                 result = on_approve(rest)
+                if result.startswith("Scheduled in"):  # spaced after a similar clip: offer "post now anyway"
+                    try:
+                        _api("sendMessage", data={"chat_id": chat_id, "text": "⏳ " + result,
+                                                  "reply_markup": json.dumps({"inline_keyboard": [[
+                                                      {"text": "🚀 Publish now anyway", "callback_data": f"f:{rest}"}]]})})
+                    except TelegramError:
+                        pass
+            elif action == "f":
+                result = on_approve(rest, force=True)
             elif action == "r":
                 result = on_reject(rest)
             elif action == "p":

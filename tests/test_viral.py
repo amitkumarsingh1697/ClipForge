@@ -15,13 +15,38 @@ def test_youtube_privacy_defaults_to_public():
 
 def test_hashtags_specific_first_and_capped():
     tags = seo.hashtags(llm_tags=["#GTA6", "#KaiCenat"], source_title="GTA 6 MARATHON | Kai Cenat",
-                        transcript="bro the plane just crashed into the building", default_tags="#shorts",
-                        limit=20)
-    assert tags[:2] == ["#GTA6", "#KaiCenat"]
-    assert "#gaming" in tags and "#shorts" in tags and len(tags) <= 20
+                        transcript="bro the plane just crashed into the building", default_tags="#shorts #fyp")
+    assert tags[:2] == ["#GTA6", "#KaiCenat"] and len(tags) == 3  # YouTube: 3 hashtags, specific first
+    assert not {"#fyp", "#foryou", "#viral"} & {t.lower() for t in tags}
     assert len({t.lower() for t in tags}) == len(tags)  # no duplicates
     ig = seo.hashtags(llm_tags=["#GTA6"], source_title="GTA 6", campaign_tags="#ad #brand", limit=5)
     assert len(ig) == 5 and "#ad" in ig and "#brand" in ig  # campaign tags always kept
+    tt = seo.hashtags(llm_tags=["#GTA6"], source_title="GTA 6", limit=5, platform="tiktok")
+    assert len(tt) == 5 and "#GTA6" in tt  # filler like #fyp is allowed on TikTok only
+
+
+def test_spelling_is_fixed_from_the_real_names():
+    assert seo.fix_spelling("KAI Centa GTA6 Bank Robbery Fail!") == "KAI Cenat GTA6 Bank Robbery Fail!"
+    assert seo.fix_spelling("kai canta robs a bank") == "kai cenat robs a bank"
+    assert seo.fix_spelling("Avengers Doomday trailer", "Avengers: Doomsday | Teaser") == "Avengers Doomsday trailer"
+    assert seo.fix_spelling("Kai cant stop laughing") == "Kai cant stop laughing"  # ordinary words left alone
+    assert "kai centa" in seo.misspellings("Kai Cenat")
+
+
+def test_category_matches_content():
+    assert seo.category_id("Avengers: Doomsday | Official Teaser Trailer") == "1"  # Film & Animation
+    assert seo.category_id("GTA 6 MARATHON | Kai Cenat") == "20"  # Gaming
+
+
+def test_tags_are_clean_and_titles_have_no_shorts_hashtag():
+    from app.services.social_publisher import youtube_title
+
+    tags = seo.youtube_tags("x", "GTA 6 | Kai Cenat", ["kai cenat gta 6", "gta 6 funny moments funny moments",
+                                                       "gta 6 funny moments"], ["#GTA6", "#fyp"], "Kai Cenat Live")
+    assert "gta 6 funny moments" in tags and not any("moments funny" in t for t in tags)
+    assert len(tags) == len(set(tags)) <= 15 and "kai cenat" in tags and "fyp" not in tags
+    assert any(t in tags for t in seo.misspellings("Kai Cenat"))  # misspellings only in tags
+    assert youtube_title("Kai Cenat Robs A Bank #Shorts") == "Kai Cenat Robs A Bank"
 
 
 def test_niches_and_keywords():
@@ -41,12 +66,45 @@ def test_post_package_is_detailed():
                     "hashtags": ["#GTA6", "#KaiCenat"]}}
     pkg = pipeline.post_package("Kai's GTA 6 Plane Crash", meta)
     d = pkg["youtube_description"]
-    assert d.startswith("Would you have jumped?")
-    assert "Kai Cenat crashes a plane" in d and "kai cenat gta 6" in d and "Original content: Kai Cenat" in d
-    assert 10 <= d.count("#") <= 25 and len(d) <= 4900
-    assert sum(len(t) + 3 for t in pkg["youtube_tags"]) <= 500 and "kai cenat gta 6" in pkg["youtube_tags"]
+    first = d.split("\n")[0]
+    assert len(first) <= 150 and "kai cenat" in first.lower()  # ad-copy first line with the main keyword
+    assert "Kai Cenat crashes a plane" in d and "Original: Kai Cenat" in d
+    assert d.count("#") == 3 and "If you search" not in d and "🔎" not in d  # no keyword-stuffing block
+    assert 3 <= len(pkg["youtube_tags"]) <= 15 and "kai cenat gta 6" in pkg["youtube_tags"]
+    assert sum(len(t) + 3 for t in pkg["youtube_tags"]) <= 500
+    assert pkg["youtube_category"] == "20" and pkg["keyword"] == "kai cenat gta 6"
     assert pkg["instagram"].count("#") == 5
-    assert pkg["tiktok"].count("#") <= 8
+    assert pkg["tiktok"].count("#") <= 5 and pkg["facebook"].count("#") <= 3
+
+
+def test_post_package_fixes_creator_spelling():
+    meta = {"source_info": {"title": "GTA 6 | Kai Cenat", "video_title": "GTA 6 | Kai Cenat", "uploader": "Kai Cenat"},
+            "hook_text": "Kai Centa did WHAT", "llm": {"description": "Kai Centa robs a bank in GTA 6."}}
+    pkg = pipeline.post_package("KAI Centa GTA6 Bank Heist", meta)
+    assert pkg["title"] == "KAI Cenat GTA6 Bank Heist"
+    assert "Centa" not in pkg["youtube_description"] and "Centa" not in pkg["instagram"]
+
+
+def test_unique_titles_and_spacing(sample_video, monkeypatch):
+    from app.services import social_publisher as sp
+
+    monkeypatch.setattr(transcriber, "transcribe_words", lambda *a, **k: [])
+    job = pipeline.submit("upload", "gameplay.mp4", raw_path=sample_video,
+                          options={"clips": 2, "clip_seconds": 8, "tease": False, "replay": False, "beat": False})
+    a, b = get_store().children(job)[:2]
+    assert pipeline._title_key(a["title"]) != pipeline._title_key(b["title"])
+    assert pipeline.unique_title(a["title"], b["id"], job) != a["title"]
+    monkeypatch.setattr(sp, "publishers_configured", lambda: {"youtube": True})
+    monkeypatch.setattr(pipeline, "_dispatch", lambda *a, **k: None)
+    assert pipeline.approve(a["id"]) == "Approved, publishing now"
+    msg = pipeline.approve(b["id"])  # minutes after a clip from the same video: spaced out
+    assert msg.startswith("Scheduled in") and get_store().get(b["id"])["status"] == "scheduled"
+    assert pipeline.approve(b["id"], force=True) == "Approved, publishing now"
+    # or merge them into one compilation
+    comp = pipeline.make_compilation([a["id"], b["id"]])
+    c = get_store().get(comp)
+    assert c["status"] == "awaiting_approval" and c["meta"]["compilation_of"] == [a["id"], b["id"]]
+    assert probe(Path(c["output_path"])).duration > float(a["meta"]["duration"]) + 1
 
 
 def test_plan_edit_tease_body_replay():
@@ -123,7 +181,7 @@ def test_publish_progress_and_visibility_warning(sample_video, monkeypatch, tmp_
     st = {s["key"]: s for s in c["meta"]["publish_progress"]["stages"]}
     assert st["youtube.upload"]["state"] == "done" and st["youtube.visibility"]["state"] == "warn"
     assert "audit" in st["youtube.visibility"]["detail"] and st["youtube.link"]["state"] == "done"
-    assert seen["tags"] and seen["description"].count("#") >= 8
+    assert seen["tags"] and seen["description"].count("#") == 3
     # fixing visibility afterwards
     monkeypatch.setattr(sp, "set_youtube_privacy", lambda vid, p="public": {"privacy": "public"})
     res = pipeline.make_youtube_public()

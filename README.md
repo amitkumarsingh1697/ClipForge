@@ -3,7 +3,7 @@
 
 <p align="center"><img src="docs/screenshots/clips.jpg" alt="ClipForge clips page" width="900"></p>
 
-Paste a video link, upload a file or follow a live stream. ClipForge finds the most exciting moments, cuts them into Shorts / Reels / TikToks with word-by-word captions, a hook title, a 2-second tease of the payoff, jump cuts, zoom punch-ins, a slow-motion replay that loops back to the start, a ducked background beat, a progress bar and a cover image, and scores how viral each one looks. Every post gets a detailed, search-friendly description with hashtags and tags for each platform. You review them in the web app or in Telegram, and approved clips are posted to YouTube, Instagram, Facebook and TikTok (all of them, or just the ones you pick), now or on a schedule.
+Paste a video link, upload a file or follow a live stream. ClipForge finds the most exciting moments, cuts them into Shorts / Reels / TikToks with word-by-word captions, a hook title, a 2-second tease of the payoff, jump cuts, zoom punch-ins, a slow-motion replay that loops back to the start, a ducked background beat, a progress bar and a cover image, and scores how viral each one looks. Every post gets a clean, search-friendly description (an ad-copy first line with the main keyword, no keyword stuffing), 3 specific hashtags, 10-15 tags, the right YouTube category and correctly spelled names. You review them in the web app or in Telegram, and approved clips are posted to YouTube, Instagram, Facebook and TikTok (all of them, or just the ones you pick), now or on a schedule.
 
 Everything runs on your computer: speech-to-text with Whisper, and the AI writer with Ollama or any cloud model you choose. No subscriptions.
 
@@ -22,7 +22,7 @@ Everything runs on your computer: speech-to-text with Whisper, and the AI writer
 9. [Earn from clipping](#8-earn-from-clipping)
 10. [Commands](#9-commands)
 11. [Settings (.env)](#10-settings-env)
-12. [Getting views](#getting-views) · [Updating](#updating) · [Troubleshooting](#troubleshooting) · [Server / Docker](#run-on-a-server-docker) · [Tests](#tests)
+12. [Getting views](#getting-views) · [SEO rules](#seo-rules) · [Updating](#updating) · [Troubleshooting](#troubleshooting) · [Server / Docker](#run-on-a-server-docker) · [Tests](#tests)
 
 ---
 
@@ -35,7 +35,8 @@ Everything runs on your computer: speech-to-text with Whisper, and the AI writer
 | **Finding moments** | Audio excitement plus on-screen motion, optionally re-ranked by the AI from what is said |
 | **Viral look** | Pop captions (the spoken word in yellow, key words in green), a hook title for the first 3 s, jump cuts (only real dead air, never silent action), zoom punch-ins, a progress bar and your watermark |
 | **Viral edit** | Opens with a 2 s tease of the payoff moment ("wait for it"), punches in on the payoff, and ends on a zoomed slow-motion **INSTANT REPLAY** that loops straight back into the opening. Optional background beat (your own royalty-free tracks, or a built-in one ClipForge generates), ducked whenever someone talks |
-| **SEO & hashtags** | A detailed YouTube description (hook line, what happens, the phrases people search for, credit to the original creator, call to action, up to 20 hashtags ordered specific → niche → broad), YouTube tags, and shorter captions for Instagram (max 5 hashtags, Instagram's rule), TikTok and Facebook. **📝 Post text** shows exactly what each platform gets |
+| **SEO & hashtags** | Follows YouTube's own rules (see [SEO rules](#seo-rules)): a first line under 150 characters that reads like an ad and holds the main keyword, what happens in plain sentences, a question, credit to the original creator, and **3 hashtags** (no #fyp or #shorts). 10-15 clean YouTube tags with no repeated words, including 2 common misspellings of the creator's name (misspellings only ever go in tags). Names are spell-checked against the original video ("Kai Centa" becomes "Kai Cenat"), the category matches the content (trailers go to Film & Animation, games to Gaming), and titles carry no "#Shorts". Instagram gets 5 hashtags (its limit), TikTok 5, Facebook 3. **📝 Post text** shows exactly what each platform gets |
+| **No duplicate spam** | Every clip gets its own title. A clip from the same video approved minutes after another is scheduled for the next free slot (90 min apart by default); you can publish it anyway, or **merge** the clips into one compilation |
 | **Live progress** | Every job shows its steps as they happen: download % and speed, finding moments, transcribing, AI writing, payoff/cut/zoom plan, cover, render %, and for publishing: upload %, metadata, thumbnail, **visibility check** and the live link |
 | **Smart crop** | Follows faces (streamer cam, podcast guests) and action instead of always cropping the centre |
 | **Cover image** | Made for every clip from the sharpest frame around the payoff (the reaction), with the hook in big bold text, and used as its first frame, so YouTube, Instagram and TikTok all show it as the thumbnail |
@@ -148,12 +149,13 @@ On **Clips**, each video you submitted is a group with its copyright badge, and 
 
 | Button | What it does |
 |---|---|
-| **✓ Approve** | Opens the publish dialog. Untick any platform you don't want under **Post to** (all connected ones are ticked; ones not connected yet show 🔒), then **Publish now**, or pick a time (or a quick choice such as *Tonight 7 PM*) and **Schedule** |
+| **✓ Approve** | Opens the publish dialog. Untick any platform you don't want under **Post to** (all connected ones are ticked; ones not connected yet show 🔒), then **Publish now**, or pick a time (or a quick choice such as *Tonight 7 PM*) and **Schedule**. If a clip from the same video went out minutes ago, the dialog warns you and offers **Schedule for the next slot**, **Merge both into a compilation** or **Publish now anyway** (Telegram schedules it and sends a *Publish now anyway* button) |
 | **Reject** | Deletes the clip |
 | **✎ Edit** | Change the title, hook, caption or cover (see below) |
 | **⬇ Video / ⬇ Cover** | Download the MP4 or the cover JPG |
 | **📝 Post text** | The exact YouTube title, description and tags, and the Instagram, TikTok and Facebook captions, with Copy buttons |
 | **🌍 Make public on YouTube** | Shown when a published clip is private or unlisted on YouTube. The Clips page also offers **Make them all public** and **Check visibility** for uploads made before this check existed |
+| **🎞 Merge N clips into a compilation** | On a video with 2+ clips waiting for review: joins them into one longer video, a new clip you approve like any other. Better than posting near-identical Shorts minutes apart |
 | **↻ Remake** | Make the clip again with a fresh AI hook, title and caption |
 | **Retry** | On a failed clip: render again, or publish again to the platforms that failed |
 
@@ -392,6 +394,8 @@ Most things are set in the app. `.env` holds secrets and defaults; restart after
 | `PAYOFF_TEASE`, `PAYOFF_REPLAY`, `BEAT` | true | Payoff tease at the start, slow-mo replay at the end, background beat |
 | `BEAT_VOLUME` | 0.12 | Beat loudness before ducking (0 to 1) |
 | `WHISPER_MODEL` | small | tiny, base, small, medium, large-v3 |
+| `YOUTUBE_CATEGORY_ID` | 20 | Only a fallback: each clip gets the category that matches it (1 Film & Animation, 17 Sports, 20 Gaming, 22 People & Blogs, 23 Comedy, 24 Entertainment) |
+| `PUBLISH_SPACING_MIN` | 90 | Clips from the same video are posted at least this many minutes apart; 0 turns it off |
 | `YOUTUBE_PRIVACY` | public | public, unlisted or private. Older `.env` files said `private`: change it to `public` |
 | `TIKTOK_PRIVACY` | SELF_ONLY | Unaudited TikTok apps can only post privately |
 | `DATA_DIR` | ./data | Where videos, the database and tokens are kept |
@@ -438,9 +442,28 @@ ClipForge does the packaging the big clip channels do: a hook in the first secon
 - **Reused content:** clips of other creators' streams (for example a famous streamer's GTA marathon) compete with hundreds of other clippers, can be claimed or muted by Content ID, and YouTube can limit reach or monetisation of "reused content". Add something of your own (commentary, a reaction, a top-5 edit, context in the hook), credit the creator, and prefer creators who allow clipping (see **Earn**).
 - **A new channel** starts with little trust. Shorts are first shown to a small test audience; the share who keep watching instead of swiping away decides whether it is pushed further. Expect the first few weeks to be slow.
 - **One niche per channel**, so the audience YouTube finds for one clip likes the next one too.
+- **No duplicates:** one strong clip per moment, spaced out (ClipForge does this, see [SEO rules](#seo-rules)).
 - **Consistency:** 1-3 clips every day, at the times your viewers are online (the schedule dialog has quick picks).
 - **Early engagement:** reply to the first comments, pin a question.
 - **Trending topics:** clip moments people are searching for this week.
+
+## SEO rules
+
+What ClipForge writes for every clip, and why (from YouTube's own guidance and a review of a real channel):
+
+| Rule | Why |
+|---|---|
+| Names spelled exactly as in the original video ("Kai Cenat", "Doomsday") | A misspelled name in a title or description loses the search for the real name. ClipForge spell-checks the AI's text against the original video title, the creator's name and a list of well-known names |
+| Misspellings only in tags ("kai centa", "kai cenant") | Tags are mainly for catching people who mistype a name. Never in the title |
+| First ~150 characters read like ad copy and contain the main keyword | That is what shows in search results and under the Short |
+| No keyword lists ("If you search for…", 🔎 lists) | YouTube treats them as keyword stuffing and can limit or remove the video |
+| 3 hashtags, specific ones (#KaiCenat #GTA6 #GTA6FunnyMoments) | The first 3 show above the title; with more than 15, YouTube ignores all of them. #fyp and #foryou are TikTok habits and do nothing on YouTube |
+| No "#Shorts" in the title | YouTube finds Shorts by length and shape; the hashtag only wastes title characters |
+| 10-15 tags, no repeated words, under 500 characters | "gta 6 funny moments funny moments" looks broken and spammy |
+| A category that matches the content | A movie trailer in Gaming confuses who YouTube shows it to |
+| A different title for every clip, spaced-out uploads | Six near-identical Shorts in seven minutes look like duplicate spam. Space them out, or merge them into one compilation |
+
+Things only you can do on the channel: write the **About** section and **channel keywords** in YouTube Studio around one niche, keep the channel to that niche, and delete or privatise old near-duplicate uploads.
 
 ## Client pitch deck
 

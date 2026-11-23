@@ -317,6 +317,34 @@ def _prepend_intro(image: Path, body: Path, dst: Path, out_w: int, out_h: int, i
         lst.unlink(missing_ok=True)
 
 
+def concat_clips(parts: list[Path], dst: Path, out_w: int, out_h: int, on_progress=None) -> Path:
+    """Join finished clips into one video (a compilation), re-encoded to one size so any clips can be mixed."""
+    infos = [probe(p) for p in parts]
+    cmd = ["ffmpeg", "-y", "-v", "error", "-nostdin"]
+    for p in parts:
+        cmd += ["-i", str(Path(p).resolve())]
+    n_extra = len(parts)
+    for info in infos:
+        if not info.has_audio:
+            cmd += ["-f", "lavfi", "-t", f"{info.duration:.3f}", "-i", "anullsrc=r=48000:cl=stereo"]
+    chains, ins, k = [], [], n_extra
+    for i, info in enumerate(infos):
+        chains.append(f"[{i}:v]scale={out_w}:{out_h}:force_original_aspect_ratio=decrease,"
+                      f"pad={out_w}:{out_h}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,format=yuv420p[v{i}]")
+        if info.has_audio:
+            chains.append(f"[{i}:a]aresample=48000,aformat=channel_layouts=stereo[a{i}]")
+        else:
+            chains.append(f"[{k}:a]aformat=channel_layouts=stereo[a{i}]")
+            k += 1
+        ins.append(f"[v{i}][a{i}]")
+    chains.append("".join(ins) + f"concat=n={len(parts)}:v=1:a=1[v][a]")
+    cmd += ["-filter_complex", ";".join(chains), "-map", "[v]", "-map", "[a]", "-c:v", "libx264",
+            "-preset", "veryfast", "-crf", "21", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart",
+            str(dst.resolve())]
+    run(cmd, timeout=1800, on_progress=on_progress, total_s=sum(i.duration for i in infos))
+    return dst
+
+
 def activity(src: Path, start: float, duration: float, step: float = 0.25) -> tuple[np.ndarray, np.ndarray]:
     """Per-step on-screen motion and loudness over a clip (used to tell dead air from quiet action)."""
     import subprocess

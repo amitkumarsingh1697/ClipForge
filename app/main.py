@@ -256,13 +256,16 @@ def job_status(job_id: str):
 class ApproveIn(BaseModel):
     publish_at: str | None = None  # ISO time; empty = now
     platforms: list[str] | None = None  # subset of connected platforms; empty = all of them
+    force: bool = False  # publish now even if a similar clip from the same video just went out
+
 
 
 @app.post("/jobs/{job_id}/approve", dependencies=[Depends(require_token)])
 def approve(job_id: str, body: ApproveIn | None = None):
     body = body or ApproveIn()
     try:
-        return {"result": pipeline.approve(job_id, body.publish_at or None, body.platforms or None)}
+        return {"result": pipeline.approve(job_id, body.publish_at or None, body.platforms or None,
+                                           force=body.force)}
     except ValueError as e:
         raise HTTPException(422, f"Couldn't approve: {e}")
 
@@ -361,6 +364,26 @@ def stats_refresh():
     return pipeline.refresh_stats()
 
 
+class CompilationIn(BaseModel):
+    clip_ids: list[str]
+    title: str | None = None
+
+
+@app.post("/api/compilation", dependencies=[Depends(require_token)])
+def compilation(body: CompilationIn):
+    """Merge 2+ finished clips into one new clip (waits for approval like any other)."""
+    try:
+        return {"job_id": pipeline.make_compilation(body.clip_ids, body.title or None, background=True)}
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+
+
+@app.get("/jobs/{job_id}/similar", dependencies=[Depends(require_token)])
+def similar(job_id: str):
+    """A clip from the same video that went out minutes ago (the UI warns before publishing)."""
+    return {"similar": pipeline.similar_recent(job_id)}
+
+
 @app.post("/api/youtube/make-public", dependencies=[Depends(require_token)])
 def youtube_make_public(job_id: str | None = None):
     """Switch published clips (one, or all) to public on YouTube and report what YouTube says."""
@@ -380,7 +403,8 @@ def post_preview(job_id: str):
     from app.services.social_publisher import youtube_title
 
     short = job["meta"].get("format", "vertical") != "landscape" and float(job["meta"].get("duration") or 0) <= 180
-    return {"title": youtube_title(job["title"] or "Clip", short), **pipeline.post_package(job["title"] or "", job["meta"])}
+    pkg = pipeline.post_package(job["title"] or "", job["meta"])
+    return {**pkg, "title": youtube_title(pkg.get("title") or job["title"] or "Clip", short)}
 
 
 @app.post("/jobs/{job_id}/reject", dependencies=[Depends(require_token)])

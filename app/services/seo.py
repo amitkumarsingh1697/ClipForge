@@ -1,10 +1,14 @@
 """Search & discovery packaging: titles, descriptions, hashtags and tags per platform.
 
 What the platforms actually use (checked Nov 2026):
-  YouTube   title + description + hashtags are read for search and "related" suggestions. The
-            first ~120 characters of the description show under the Short, the first 3 hashtags
-            show above the title, and more than 60 hashtags makes YouTube ignore all of them.
-            Video tags (snippet.tags, 500 characters max) help with misspellings and search.
+  YouTube   title + description are read for search and "related" suggestions; YouTube's AI also checks
+            that they match the video, and keyword-stuffed descriptions are held back. The first
+            ~150 characters of the description show in search and under the Short, so they are written
+            as ad copy with the main keyword. Only the first 3 hashtags show (above the title), and
+            more than 15 makes YouTube ignore all of them, so ClipForge uses 3. "#Shorts" is not needed:
+            vertical videos up to 3 min are Shorts. Tags barely matter now except for misspellings,
+            so 10-15 clean tags, with common misspellings of the creator's name, go there (never in
+            the title).
   Instagram since Dec 2025 a post may carry at most 5 hashtags; keywords in the caption matter more.
   TikTok    caption keywords drive TikTok search; 3-6 hashtags is the norm.
   Facebook  short caption, a few hashtags.
@@ -28,6 +32,18 @@ one two three thing things want need say said think make made let's it's i'm tha
 first time played playing ever ki ka ke ne se hai ko mein""".split())
 
 GENERIC_TAGS = ["#shorts", "#viral", "#trending", "#fyp", "#foryou", "#viralvideo", "#shortsfeed", "#explore"]
+TIKTOK_ONLY = {"#fyp", "#foryou", "#foryoupage", "#explore", "#shortsfeed", "#viralvideo", "#trending", "#viral",
+               "#shorts"}
+
+# Spelling: names/titles people search for, so a typo in a title (yours or the AI's) gets corrected.
+KNOWN_NAMES = ["Kai Cenat", "IShowSpeed", "xQc", "Adin Ross", "MrBeast", "Pokimane", "Sidemen", "Ninja",
+               "Grand Theft Auto", "GTA 6", "GTA 5", "GTA Online", "Rockstar Games", "Vice City", "Los Santos",
+               "Minecraft", "Fortnite", "Valorant", "Warzone", "Call of Duty", "Roblox", "Doomsday", "Avengers",
+               "Marvel", "Spider-Man", "Dragon Ball", "Goku", "Vegeta", "Naruto", "One Piece", "Taarak Mehta",
+               "Jethalal", "Champions League", "Cristiano Ronaldo", "Messi"]
+# YouTube categories (https://developers.google.com/youtube/v3/docs/videoCategories)
+CATEGORY_BY_NICHE = {"movie": "1", "anime": "1", "gaming": "20", "gta": "20", "streamer": "20", "sports": "17",
+                     "comedy": "23", "tv": "24", "podcast": "22", "motivation": "22"}
 
 # niche -> (words that reveal it, hashtags people search in it)
 NICHES: dict[str, tuple[set[str], list[str]]] = {
@@ -55,11 +71,15 @@ NICHES: dict[str, tuple[set[str], list[str]]] = {
     "sports": ({"football", "soccer", "nba", "basketball", "cricket", "ipl", "goal", "messi", "ronaldo", "ufc",
                 "boxing", "wwe", "match"},
                ["#sports", "#highlights", "#football", "#sportsclips"]),
+    "movie": ({"trailer", "movie", "film", "marvel", "avengers", "doomsday", "dc", "teaser", "cinema", "box office",
+               "spider-man", "spiderman", "batman", "superman", "netflix", "official trailer"},
+              ["#movie", "#trailer", "#marvel", "#film", "#movieclips"]),
     "motivation": ({"motivation", "success", "mindset", "discipline", "hustle", "money", "business", "grind"},
                    ["#motivation", "#mindset", "#success", "#selfimprovement"]),
 }
 
 CTA = {
+    "movie": "Subscribe for the best movie moments 🎬",
     "gta": "Follow for daily GTA clips 🎮",
     "gaming": "Follow for daily gaming clips 🎮",
     "streamer": "Follow for the best stream moments every day 🔴",
@@ -152,98 +172,254 @@ def keywords(source_title: str, transcript: str = "", n: int = 12) -> list[str]:
     return out[:n]
 
 
+def _vocab(*texts: str) -> list[str]:
+    words: list[str] = []
+    for t in list(texts) + KNOWN_NAMES:
+        words += re.findall(r"[A-Za-z][A-Za-z'-]{3,}", t or "")
+    return list(dict.fromkeys(words))
+
+
+def _match_case(src: str, fix: str) -> str:
+    if src.isupper():
+        return fix.upper()
+    if src.islower():
+        return fix.lower()
+    return fix
+
+
+def fix_spelling(text: str, *reference: str) -> str:
+    """Correct names/words that are close to the right spelling in the reference texts (the original video's
+    title, the creator's name) or the known-names list: 'KAI Centa' -> 'KAI Cenat', 'doomday' -> 'doomsday'.
+    Only words of 4+ letters that aren't in the references are touched, and only when one candidate is clearly
+    the closest, so ordinary words are left alone."""
+    import difflib
+
+    if not text:
+        return text
+    vocab = _vocab(*reference)
+    lower = {v.lower(): v for v in vocab}
+    names = [n for n in KNOWN_NAMES if " " in n] + [e for r in reference for e in _entities(r) if " " in e]
+
+    def fix_word(m: re.Match) -> str:
+        w = m.group(0)
+        if len(w) < 4 or w.lower() in lower or w.lower() in STOP:
+            return w
+        cands = difflib.get_close_matches(w.lower(), list(lower), n=2, cutoff=0.8)
+        if not cands:
+            return w
+        if len(cands) == 2 and difflib.SequenceMatcher(None, w.lower(), cands[0]).ratio() == \
+                difflib.SequenceMatcher(None, w.lower(), cands[1]).ratio():
+            return w  # ambiguous
+        return _match_case(w, lower[cands[0]])
+    # two-word names first: 'Kai Canta' -> 'Kai Cenat' (first word right, second word close)
+    for name in names:
+        first, *rest = name.split()
+        if not rest:
+            continue
+        pat = re.compile(rf"\b({re.escape(first)})\s+([A-Za-z]+)\b", re.I)
+
+        def repl(m: re.Match, rest=rest) -> str:
+            want = rest[0]
+            got = m.group(2)
+            if got.lower() == want.lower():
+                return m.group(0)
+            g, w = got.lower(), want.lower()
+            ratio = difflib.SequenceMatcher(None, g, w).ratio()
+            overlap = len(set(g) & set(w)) / len(set(g) | set(w))
+            close = ratio >= 0.75 or (ratio >= 0.6 and overlap >= 0.8 and len(g) == len(w))
+            if g[:1] == w[:1] and len(g) >= 4 and close:
+                return f"{m.group(1)} {_match_case(got, want)}"
+            return m.group(0)
+        text = pat.sub(repl, text)
+    return re.sub(r"[A-Za-z][A-Za-z']+", fix_word, text)
+
+
+def misspellings(name: str, n: int = 2) -> list[str]:
+    """Common typos people make when searching a name: swapped letters, a dropped letter."""
+    base = (name or "").lower().strip()
+    parts = base.split()
+    if not parts or len(parts[-1]) < 4:
+        return []
+    last = parts[-1]
+    out = []
+    for i in reversed(range(len(last) - 1)):  # adjacent swaps, last letters first ('centa')
+        sw = last[:i] + last[i + 1] + last[i] + last[i + 2:]
+        if sw != last:
+            out.append(" ".join(parts[:-1] + [sw]))
+    out.insert(0, " ".join(parts[:-1] + [last[:-1] + "nt" if last.endswith("t") else last + "n"]))
+    return list(dict.fromkeys(o for o in out if o != base))[:n]
+
+
+def category_id(*texts: str, default: str = "20") -> str:
+    niches = detect_niches(*texts)
+    for n in niches:
+        if n in CATEGORY_BY_NICHE:
+            return CATEGORY_BY_NICHE[n]
+    return default
+
+
 def hashtags(*, llm_tags: list[str] | None = None, source_title: str = "", transcript: str = "",
-             default_tags: str = "", campaign_tags: str = "", limit: int = 20) -> list[str]:
-    """Specific first (names, game), then niche, then broad. Campaign-required tags are always kept."""
+             default_tags: str = "", campaign_tags: str = "", limit: int = 3, platform: str = "youtube") -> list[str]:
+    """Most specific first (names, game/show), then niche. Campaign-required tags are always kept.
+    YouTube and Instagram get no TikTok-style filler (#fyp, #foryou, #viral...)."""
     required = [t for t in (campaign_tags or "").split() if t.startswith("#")]
     out: list[str] = []
+    filler_ok = platform == "tiktok"
 
     def add(t: str | None) -> None:
-        if t and t.lower() not in {o.lower() for o in out}:
-            out.append(t if t.startswith("#") else f"#{t}")
+        if not t:
+            return
+        t = t if t.startswith("#") else f"#{t}"
+        t = "#" + re.sub(r"[^\w]", "", t[1:])
+        if len(t) < 3 or t.lower() in {o.lower() for o in out}:
+            return
+        if not filler_ok and t.lower() in TIKTOK_ONLY:
+            return
+        out.append(t)
 
     for t in llm_tags or []:
         add(tagify(t.lstrip("#")) if " " in t else t.replace(" ", ""))
-    for k in _entities(source_title)[:4]:
+    known = {k.lower() for k in KNOWN_NAMES}
+    ents = sorted(_entities(source_title), key=lambda e: (e.lower() not in known, " " not in e))  # names first
+    for k in ents[:3]:
         add(tagify(k))
     niches = detect_niches(source_title, transcript, " ".join(llm_tags or []))
-    for name in niches[:3]:
-        for t in NICHES[name][1][:5]:
+    for name in niches[:2]:
+        for t in NICHES[name][1][:3]:
             add(t)
     for t in (default_tags or "").split():
         add(t)
-    for t in GENERIC_TAGS:
-        add(t)
+    if filler_ok:
+        for t in GENERIC_TAGS:
+            add(t)
     room = max(0, limit - len(required))
     chosen = [t for t in out if t.lower() not in {r.lower() for r in required}][:room]
     return list(dict.fromkeys(chosen + required))
 
 
-def youtube_tags(title: str, source_title: str, kws: list[str], tags: list[str], uploader: str | None) -> list[str]:
-    """snippet.tags: total length (with commas/quotes) must stay under 500 characters."""
-    cands = [*kws, *(t.lstrip("#") for t in tags if t.lower() not in ("#shorts", "#fyp", "#foryou"))]
-    if uploader:
-        cands.insert(0, uploader)
-    niches = detect_niches(source_title, title, " ".join(kws))
-    for name in niches[:2]:
-        base = (kws[0] if kws else name)
-        cands += [f"{base} funny moments", f"{base} highlights", f"{name} clips"]
+def _clean_tag(t: str) -> str | None:
+    words = re.sub(r"[#_]", " ", str(t)).lower().split()
+    seen: list[str] = []
+    for w in words:  # 'gta 6 funny moments funny moments' -> 'gta 6 funny moments'
+        if w not in seen or w.isdigit():
+            seen.append(w)
+    c = " ".join(seen)[:60].strip()
+    return c if len(c) >= 2 else None
+
+
+def youtube_tags(title: str, source_title: str, kws: list[str], tags: list[str], uploader: str | None,
+                 n: int = 15) -> list[str]:
+    """10-15 clean, de-duplicated tags: main keyword, its variants, the creator's name and 2 common misspellings
+    of it (misspellings belong here, never in the title). Under YouTube's 500-character limit."""
+    creator = _creator(uploader, source_title)
+    cands: list[str] = [*kws[:8]]
+    if creator:
+        cands.append(creator)
+    # '#GTA6FunnyMoments' -> 'gta 6 funny moments' (squashed hashtags aren't how people search)
+    known = {(tagify(k) or "").lower(): k.lower() for k in KNOWN_NAMES}
+    cands += [known.get(t.lower()) or
+              re.sub(r"(?<=[a-z])(?=[A-Z0-9])|(?<=[0-9])(?=[A-Za-z])|(?<=[A-Z])(?=[0-9])|(?<=[A-Z])(?=[A-Z][a-z])",
+                     " ", t.lstrip("#"))
+              for t in tags if t.lower() not in TIKTOK_ONLY]
+    ents = _entities(source_title)
+    if ents:
+        cands += [f"{ents[0]} funny moments", f"{ents[0]} highlights"]
+    if creator:
+        cands += misspellings(creator)
     out, total = [], 0
     for c in cands:
-        c = " ".join(str(c).replace("#", " ").split())[:60]
-        if not c or c.lower() in {o.lower() for o in out}:
+        c = _clean_tag(c)
+        if not c or c in out:
             continue
         cost = len(c) + 3
         if total + cost > 480:
             break
         out.append(c)
         total += cost
+        if len(out) >= n:
+            break
     return out
 
 
-def first_line(hook: str | None, title: str, caption: str | None) -> str:
-    """The line shown under the video: a curiosity hook, not a repeat of the title."""
-    cand = (caption or "").split("\n")[0].strip() or (hook or "").strip() or title
-    return cand if cand.endswith(("?", "!", ".", "…", "👀", "😱", "🔥")) else cand + " 👀"
+def _creator(uploader: str | None, source_title: str) -> str | None:
+    """'Kai Cenat Live' -> 'Kai Cenat'."""
+    if uploader:
+        u = re.sub(r"\b(live|official|clips|tv|vods?|channel|gaming)\b", "", uploader, flags=re.I)
+        u = " ".join(u.split())
+        return u or uploader
+    for name in KNOWN_NAMES:
+        if name.lower() in (source_title or "").lower() and " " in name:
+            return name
+    return None
+
+
+def primary_keyword(source_title: str, uploader: str | None, phrases: list[str]) -> str:
+    """'kai cenat gta 6': creator + game/show, the way people search."""
+    if phrases:
+        return phrases[0]
+    ents = _entities(source_title)
+    creator = _creator(uploader, source_title)
+    topic = next((e for e in ents if not creator or e.lower() not in creator.lower()), None)
+    return " ".join(x for x in (creator, topic) if x).lower() or (ents[0].lower() if ents else "")
+
+
+def proper_case(phrase: str, reference: str = "") -> str:
+    """'kai cenat gta 6' -> 'Kai Cenat GTA 6': each word as the reference/known names write it, else Title."""
+    forms = {w.lower(): w for w in re.findall(r"[\w']+", " ".join([reference or "", *KNOWN_NAMES]))
+             if not w.islower() and not (w.isupper() and len(w) > 4)}
+    return " ".join(forms.get(w.lower(), w.capitalize() if w.islower() else w) for w in (phrase or "").split())
+
+
+def ad_copy(summary: str | None, hook: str | None, title: str, keyword: str, limit: int = 150,
+            reference: str = "", caption: str | None = None) -> str:
+    """First line of the description: what happens, with the main keyword, in at most ~150 characters."""
+    first = re.split(r"(?<=[.!?])\s", (summary or "").strip())[0] if summary else ""
+    cap = (caption or "").strip()
+    line = first or (cap if cap and not cap.endswith("?") else "") or (title or hook or "").strip()
+    have = set(re.findall(r"\w+", line.lower()))
+    if keyword and not set(re.findall(r"\w+", keyword.lower())) <= have:
+        line = f"{proper_case(keyword, reference)}: {line}"
+    if len(line) > limit:
+        line = line[:limit - 1].rsplit(" ", 1)[0] + "…"
+    return line
 
 
 def youtube_description(*, title: str, hook: str | None, caption: str | None, summary: str | None,
                         search_phrases: list[str], tags: list[str], source_title: str = "",
                         uploader: str | None = None, source_url: str | None = None,
                         campaign_extra: str = "", custom: str | None = None) -> str:
-    """Detailed description: hook line, what happens, search phrases written as sentences, credit, CTA, hashtags."""
+    """Ad-copy first line, what happens (natural sentences), credit, a question to comment on, 3 hashtags.
+    No keyword lists: YouTube treats them as stuffing."""
     niches = detect_niches(source_title, title, " ".join(search_phrases))
-    cta = CTA.get(niches[0] if niches else "", "Follow for more clips like this every day 🔥")
-    parts = [custom.strip()] if custom else [first_line(hook, title, caption)]
-    if not custom and summary:
-        parts.append(summary.strip())
-    elif not custom and caption and caption.strip() != parts[0]:
-        parts.append(caption.strip())
-    if search_phrases:
-        main = ", ".join(search_phrases[:3])
-        parts.append(f"In this clip: {main}. " + (f"If you search for {', '.join(search_phrases[3:8])}, "
-                                                    "this is the moment everyone is talking about." if len(search_phrases) > 3 else ""))
-    parts.append(f"💬 Comment what you would have done!\n👍 Like if this got you\n🔔 {cta}")
+    cta = CTA.get(niches[0] if niches else "", "Subscribe for more clips like this 🔥")
+    keyword = primary_keyword(source_title, uploader, search_phrases)
+    if custom:
+        parts = [custom.strip()]
+    else:
+        parts = [ad_copy(summary, hook, title, keyword, reference=source_title, caption=caption)]
+        rest = (summary or "").strip()
+        rest = rest[len(re.split(r"(?<=[.!?])\s", rest)[0]):].strip() if rest else ""
+        if rest:
+            parts.append(rest)
+    question = (caption or "").strip() if caption and caption.strip().endswith("?") else \
+        "What would you have done? Tell us in the comments 👇"
+    parts.append(f"{question}\n🔔 {cta}")
     if uploader or source_url:
-        parts.append("🎥 Original content: " + " ".join(x for x in (uploader, source_url) if x)
-                     + "\nClip shared for commentary and entertainment. All rights to the original creator.")
-    if search_phrases:
-        parts.append("🔎 " + " | ".join(search_phrases[:15]))
+        parts.append("🎥 Original: " + " · ".join(x for x in (uploader, source_url) if x)
+                     + "\nAll rights belong to the original creator.")
     body = "\n\n".join(p for p in parts if p)
-    tag_line = " ".join(tags[:25])
+    tag_line = " ".join(tags[:3])
     extra = f"\n{campaign_extra.strip()}" if campaign_extra.strip() else ""
     return f"{body}\n\n{tag_line}{extra}".strip()[:4900]
 
 
 def short_caption(*, title: str, hook: str | None, caption: str | None, search_phrases: list[str], tags: list[str],
-                  max_tags: int, campaign_extra: str = "", custom: str | None = None, limit: int = 2200) -> str:
-    """Instagram / TikTok / Facebook: punchy caption, keywords in the text, a few hashtags."""
-    lines = [custom.strip()] if custom else [first_line(hook, title, caption)]
+                  max_tags: int, campaign_extra: str = "", custom: str | None = None, limit: int = 2200,
+                  summary: str | None = None, keyword: str = "", reference: str = "") -> str:
+    """Instagram / TikTok / Facebook: one ad-copy line with the keyword, a question, a few hashtags."""
+    lines = [custom.strip()] if custom else [ad_copy(summary, hook, title, keyword, reference=reference, caption=caption)]
     if not custom and caption and caption.strip() != lines[0]:
         lines.append(caption.strip())
-    if search_phrases and not custom:
-        lines.append(" · ".join(search_phrases[:5]))
-    lines.append("Follow for more 🔥")
     tag_line = " ".join(tags[:max_tags])
     text = "\n\n".join(lines) + f"\n\n{tag_line} {campaign_extra}".rstrip()
     return text.strip()[:limit]
