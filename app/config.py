@@ -72,7 +72,10 @@ class Settings(BaseSettings):
     # --- YouTube --------------------------------------------------------------
     youtube_client_secrets: Path | None = None  # client_secret.json (Desktop app type)
     youtube_privacy: str = "public"  # public | unlisted | private
-    youtube_category_id: str = "20"  # Gaming
+    youtube_category_id: str = "20"  # fallback only: each clip gets a matching category (trailers -> 1, games -> 20)
+    # Clips from the same video posted minutes apart look like duplicate spam: the next one is scheduled this
+    # many minutes after the previous one (0 = off). "Publish now anyway" overrides it.
+    publish_spacing_min: int = 90
 
     # --- Instagram ------------------------------------------------------------
     instagram_user_id: str = ""  # IG *Business/Creator* account id

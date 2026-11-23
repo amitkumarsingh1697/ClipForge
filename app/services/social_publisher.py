@@ -45,10 +45,12 @@ FB_REEL_MAX_S = 90
 
 
 def youtube_title(title: str, shorts: bool = True) -> str:
-    t = " ".join(title.split())
-    if shorts and "#shorts" not in t.lower():
-        t = f"{t} #Shorts"
-    return t[:100]
+    """Clean title, at most 100 characters. No '#Shorts': YouTube finds Shorts by length and shape, and a
+    hashtag in the title only wastes characters. (shorts is kept for older callers.)"""
+    import re
+
+    t = " ".join(re.sub(r"#shorts\b", "", title or "", flags=re.I).split())
+    return t[:100] or "Clip"
 
 
 def _noop(*_a, **_k) -> None:
@@ -56,7 +58,8 @@ def _noop(*_a, **_k) -> None:
 
 
 def upload_youtube(video: Path, title: str, description: str, tags: list[str] | None = None,
-                   shorts: bool = True, thumbnail: Path | None = None, on_step=None) -> str:
+                   shorts: bool = True, thumbnail: Path | None = None, on_step=None,
+                   category_id: str | None = None) -> str:
     """on_step(key, state, detail, pct) reports: upload, meta, thumb (see app.utils.progress)."""
     from googleapiclient.discovery import build
     from googleapiclient.errors import HttpError
@@ -67,7 +70,7 @@ def upload_youtube(video: Path, title: str, description: str, tags: list[str] | 
     yt = build("youtube", "v3", credentials=youtube_credentials(), cache_discovery=False)
     body = {
         "snippet": {"title": youtube_title(title, shorts), "description": description[:4900],
-                    "tags": (tags or [])[:30], "categoryId": s.youtube_category_id},
+                    "tags": (tags or [])[:15], "categoryId": category_id or s.youtube_category_id},
         "status": {"privacyStatus": s.youtube_privacy, "selfDeclaredMadeForKids": False},
     }
     media = MediaFileUpload(str(video), mimetype="video/mp4", chunksize=4 * 1024 * 1024, resumable=True)

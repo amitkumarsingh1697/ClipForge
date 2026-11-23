@@ -260,7 +260,10 @@ def post_package(title: str, meta: dict | None = None) -> dict:
     meta = meta or {}
     md = meta.get("llm") or {}
     src = meta.get("source_info") or {}
-    src_title = src.get("title") or title or ""
+    refs = (src.get("video_title") or "", src.get("uploader") or "")
+    src_title = seo.fix_spelling(src.get("title") or title or "", *refs)
+    title = seo.fix_spelling(title, src_title, *refs)
+    md = clean_llm_text(md, src_title, *refs)
     transcript = meta.get("transcript") or ""
     rs = runtime_settings.load()
     default = rs.get("default_hashtags") or get_settings().default_hashtags
@@ -269,16 +272,21 @@ def post_package(title: str, meta: dict | None = None) -> dict:
     mentions = " ".join(t for t in extra.split() if not t.startswith("#"))
     phrases = md.get("search_phrases") or [k.lower() for k in seo.keywords(src_title, transcript, 10)]
     custom = meta.get("caption_custom") or None
-    hook = meta.get("hook_text")
+    hook = seo.fix_spelling(meta.get("hook_text") or "", src_title, *refs) or None
+    keyword = seo.primary_keyword(src_title, src.get("uploader"), phrases)
 
-    def tags(limit: int) -> list[str]:
+    def tags(limit: int, platform: str = "youtube") -> list[str]:
         return seo.hashtags(llm_tags=md.get("hashtags"), source_title=src_title, transcript=transcript,
-                            default_tags=default, campaign_tags=camp_tags, limit=limit)
-    yt_tags = tags(20)
+                            default_tags=default, campaign_tags=camp_tags, limit=limit, platform=platform)
+    yt_tags = tags(3)  # YouTube shows the first 3 above the title; more than that reads as spam
     caption = md.get("caption")
     short = dict(title=title, hook=hook, caption=caption, search_phrases=phrases, campaign_extra=mentions,
-                 custom=custom)
+                 custom=custom, summary=md.get("description"), keyword=keyword, reference=src_title)
     return {
+        "title": title,
+        "keyword": keyword,
+        "youtube_category": seo.category_id(src_title, title, md.get("description") or "", " ".join(phrases),
+                                            default=get_settings().youtube_category_id),
         "hashtags": yt_tags,
         "youtube_description": seo.youtube_description(
             title=title, hook=hook, caption=caption, summary=md.get("description"), search_phrases=phrases,
@@ -286,9 +294,52 @@ def post_package(title: str, meta: dict | None = None) -> dict:
             campaign_extra=mentions, custom=custom),
         "youtube_tags": seo.youtube_tags(title, src_title, phrases, yt_tags, src.get("uploader")),
         "instagram": seo.short_caption(**short, tags=tags(5), max_tags=5),
-        "tiktok": seo.short_caption(**short, tags=tags(8), max_tags=8),
-        "facebook": seo.short_caption(**short, tags=tags(6), max_tags=6),
+        "tiktok": seo.short_caption(**short, tags=tags(5, "tiktok"), max_tags=5),
+        "facebook": seo.short_caption(**short, tags=tags(3), max_tags=3),
     }
+
+
+def clean_llm_text(md: dict, source_title: str, *refs: str) -> dict:
+    """Spell-check what the AI wrote against the real video title and creator ('Kai Centa' -> 'Kai Cenat',
+    'doomday' -> 'doomsday'), and drop repeated search phrases."""
+    out = dict(md or {})
+    for k in ("title", "hook", "caption", "description"):
+        if isinstance(out.get(k), str):
+            out[k] = seo.fix_spelling(out[k], source_title, *refs)
+    for k in ("search_phrases", "hashtags", "keywords"):
+        if isinstance(out.get(k), list):
+            vals = [seo.fix_spelling(str(v), source_title, *refs) for v in out[k]]
+            out[k] = list(dict.fromkeys(vals))
+    return out
+
+
+def _title_key(t: str) -> str:
+    import re
+
+    return re.sub(r"[^a-z0-9]+", " ", (t or "").lower()).strip()
+
+
+def unique_title(title: str, job_id: str, parent_id: str | None = None) -> str:
+    """No two clips get the same title (YouTube treats copies as duplicates). Checks this video's other clips
+    and everything published or scheduled; adds 'Part 2', 'Part 3'... when needed."""
+    import re
+
+    title = " ".join((title or "").replace("#Shorts", "").replace("#shorts", "").split())
+    if not title:
+        return title
+    store = get_store()
+    others = store.children(parent_id) if parent_id else []
+    for st in ("published", "publishing", "scheduled", "awaiting_approval", "approved"):
+        others += store.by_status(st)
+    used = {_title_key(c["title"]) for c in others if c["id"] != job_id and c.get("title")}
+    if _title_key(title) not in used:
+        return title
+    base = re.sub(r"\s*[|(-]?\s*part \d+\)?$", "", title, flags=re.I).strip()
+    for n in range(2, 50):
+        cand = f"{base} | Part {n}"[:100] if len(base) <= 88 else f"{base[:88]}… Part {n}"
+        if _title_key(cand) not in used:
+            return cand
+    return title
 
 
 def caption_text(title: str, meta: dict | None = None) -> str:
@@ -442,8 +493,11 @@ def render_clip(job_id: str) -> Path | None:
         pmeta = (parent or {}).get("meta") or {}
         source_title = (parent or {}).get("title") or job["title"] or ""
         src = pmeta.get("source") or {}
+        refs = (src.get("title") or "", src.get("uploader") or "", src.get("channel") or "")
+        source_title = seo.fix_spelling(source_title, *refs)
         store.update(job_id, meta={"transcript": " ".join(w.text for w in words)[:3000],
                                    "source_info": {"title": source_title, "uploader": src.get("uploader"),
+                                                   "video_title": src.get("title"),
                                                    "url": src.get("webpage_url") or (job["source"] if str(job.get("source") or "").startswith("http") else None)}})
         md: dict = dict(meta.get("llm") or {})
         if use_llm_meta and (not md or meta.get("llm_refresh")):
@@ -451,7 +505,8 @@ def render_clip(job_id: str) -> Path | None:
             try:
                 used = [x for c in (store.children(job["parent_id"]) if job.get("parent_id") else [])
                         if c["id"] != job_id for x in (c["meta"].get("hook_text"), c["title"])]
-                md = llm.clip_metadata(timed_transcript(words), source_title, fmt, rs, avoid=used[:12])
+                md = clean_llm_text(llm.clip_metadata(timed_transcript(words), source_title, fmt, rs,
+                                                      avoid=used[:12]), source_title, *refs)
                 store.update(job_id, meta={"llm": md, "llm_refresh": False})
                 P("ai", "done", detail=f"Title: {md.get('title') or '?'} · {len(md.get('hashtags') or [])} hashtags")
             except Exception as e:
@@ -462,12 +517,16 @@ def render_clip(job_id: str) -> Path | None:
             P("ai", "done", detail="Kept the AI text from before")
         else:
             P("ai", "done", detail="AI is off: automatic SEO from the source title and transcript")
-        if md.get("title") and not meta.get("title_locked"):
-            store.update(job_id, title=md["title"])
-            job["title"] = md["title"]
+        if not meta.get("title_locked"):
+            new_title = unique_title(md.get("title") or job["title"] or "", job_id, job.get("parent_id"))
+            if new_title and new_title != job["title"]:
+                store.update(job_id, title=new_title)
+                job["title"] = new_title
         hook = None
         if meta.get("hook", s.hook_overlay):
             hook = meta.get("hook_custom") or md.get("hook") or fallback_hook(source_title)
+            if hook and not meta.get("hook_custom"):
+                hook = seo.fix_spelling(hook, source_title, *refs)
 
         P("plan", detail="Finding the payoff moment and dead air…")
         keep = None
@@ -723,9 +782,47 @@ def toggle_platform(job_id: str, platform: str) -> list[str]:
     return set_platforms(job_id, current)
 
 
-def approve(job_id: str, publish_at: str | None = None, platforms: list[str] | None = None) -> str:
+def similar_recent(job_id: str, spacing_min: float | None = None) -> dict | None:
+    """Another clip from the same video that went out (or is scheduled) less than spacing_min minutes ago or
+    later. Returns {"id", "title", "at" (epoch s), "next_slot" (epoch s)} or None."""
+    import time as _t
+    from datetime import datetime
+
+    spacing = float(get_settings().publish_spacing_min if spacing_min is None else spacing_min) * 60
+    store = get_store()
+    job = store.get(job_id)
+    if not job or spacing <= 0:
+        return None
+    sibs = store.children(job["parent_id"]) if job.get("parent_id") else []
+    key = _title_key(job.get("title") or "")
+    sibs += [c for st in ("published", "publishing", "scheduled") for c in store.by_status(st)
+             if key and _title_key(c.get("title") or "") == key]
+    latest = None
+    for c in sibs:
+        if c["id"] == job_id or c["status"] not in ("published", "publishing", "scheduled"):
+            continue
+        m = c["meta"]
+        at = m.get("posted_at")
+        if c["status"] == "scheduled" and m.get("publish_at"):
+            try:
+                at = datetime.fromisoformat(m["publish_at"]).timestamp()
+            except ValueError:
+                at = None
+        at = float(at or c.get("updated_at") or 0)
+        if latest is None or at > latest[0]:
+            latest = (at, c)
+    if not latest or _t.time() - latest[0] >= spacing:
+        return None
+    at, c = latest
+    return {"id": c["id"], "title": c["title"], "at": at, "next_slot": max(_t.time(), at + spacing)}
+
+
+def approve(job_id: str, publish_at: str | None = None, platforms: list[str] | None = None,
+            force: bool = False) -> str:
     """publish_at: optional ISO time (UTC or with offset). Until then the clip waits as 'scheduled'.
-    platforms: optional subset of connected platforms; default is all of them."""
+    platforms: optional subset of connected platforms; default is all of them.
+    Without force, a clip whose sibling from the same video went out minutes ago is scheduled for the next
+    free slot instead (PUBLISH_SPACING_MIN), so the channel doesn't post near-duplicates back to back."""
     from datetime import datetime, timezone
 
     from app.services import social_publisher as sp
@@ -744,6 +841,17 @@ def approve(job_id: str, publish_at: str | None = None, platforms: list[str] | N
             return ("Approved and saved. Connect YouTube, Instagram or TikTok in the web UI (Publishing) "
                     "to post automatically; until then download it from the UI.")
         return f"Already {job['status']}"
+    if not publish_at and not force and job["status"] in ("awaiting_approval", "approved"):
+        near = similar_recent(job_id)
+        if near:
+            when = datetime.fromtimestamp(near["next_slot"], timezone.utc)
+            if store.transition(job_id, ("awaiting_approval", "approved"), "scheduled"):
+                store.update(job_id, meta={"publish_at": when.isoformat(), "spaced_after": near["id"]})
+                mins = max(1, round((near["next_slot"] - datetime.now(timezone.utc).timestamp()) / 60))
+                return (f"Scheduled in {mins} min ({when.isoformat(timespec='minutes')}): a similar clip from "
+                        f"the same video (\"{near['title']}\") went out just before. Posting near-duplicates "
+                        f"minutes apart looks like spam. Publish now anyway, or merge them into a compilation.")
+            return f"Already {job['status']}"
     if publish_at:
         when = datetime.fromisoformat(publish_at.replace("Z", "+00:00"))
         if when.tzinfo is None:
@@ -754,10 +862,73 @@ def approve(job_id: str, publish_at: str | None = None, platforms: list[str] | N
                 return f"Scheduled for {when.isoformat(timespec='minutes')}"
             return f"Already {job['status']}"
     if store.transition(job_id, ("awaiting_approval", "approved", "scheduled"), "publishing"):
+        import time as _t
+
+        store.update(job_id, meta={"posted_at": _t.time()})
         _dispatch("publish_clip_task", job_id)
         return "Approved, publishing now"
     job = store.get(job_id)
     return f"Already {job['status']}"
+
+
+def make_compilation(clip_ids: list[str], title: str | None = None, background: bool = False) -> str:
+    """Merge finished clips (best from one video) into one longer video, as a new clip waiting for approval.
+    Better than posting near-identical Shorts minutes apart. The originals are left as they are."""
+    store = get_store()
+    clips = [store.get(i) for i in dict.fromkeys(clip_ids)]
+    clips = [c for c in clips if c and c["kind"] == "clip" and c.get("output_path") and Path(c["output_path"]).exists()]
+    if len(clips) < 2:
+        raise ValueError("pick at least 2 finished clips")
+    clips.sort(key=lambda c: (c.get("parent_id") or "", float(c.get("start_s") or 0)))
+    first = clips[0]
+    fm = first["meta"]
+    fmt = fm.get("format", "vertical")
+    out_w, out_h = video_editor.format_size(fmt)
+    src = fm.get("source_info") or {}
+    base = seo.fix_spelling(src.get("title") or first["title"] or "Clips", src.get("video_title") or "",
+                            src.get("uploader") or "")
+    name = title or f"{fallback_hook(base) or base} | Best Moments"
+    job_id = store.create("clip", status="rendering", parent_id=first.get("parent_id"),
+                          source_type=first.get("source_type"), source=first.get("source"),
+                          raw_path=first.get("raw_path"), start_s=first.get("start_s"),
+                          end_s=clips[-1].get("end_s"), score=max(float(c.get("score") or 0) for c in clips),
+                          title=name[:100],
+                          meta={"format": fmt, "compilation_of": [c["id"] for c in clips], "title_locked": bool(title),
+                                "source_info": src, "llm": {k: v for k, v in (fm.get("llm") or {}).items()
+                                                           if k in ("search_phrases", "hashtags", "keywords")},
+                                "hook_text": None, "cover_path": fm.get("cover_path"), "campaign": fm.get("campaign")})
+    if not title:
+        store.update(job_id, title=unique_title(name, job_id, first.get("parent_id")))
+    progress.start(job_id, [("render", "Join the clips into one video"), ("finish", "Send for review")])
+    if background:
+        import threading
+
+        threading.Thread(target=_render_compilation, args=(job_id, clips, out_w, out_h), daemon=True).start()
+    else:
+        _render_compilation(job_id, clips, out_w, out_h)
+    return job_id
+
+
+def _render_compilation(job_id: str, clips: list[dict], out_w: int, out_h: int) -> None:
+    from app.services.video_editor import concat_clips
+
+    store = get_store()
+    P = progress.Stepper(job_id)
+    try:
+        out = get_settings().processed_dir / f"{job_id}.mp4"
+        P("render", detail=f"Joining {len(clips)} clips…", pct=0)
+        concat_clips([Path(c["output_path"]) for c in clips], out, out_w, out_h, on_progress=lambda p: P("render", pct=p))
+        P("render", "done", detail=f"{out.stat().st_size / 1e6:.1f} MB")
+        dur = video_editor.probe(out).duration
+        store.update(job_id, output_path=str(out), meta={"duration": round(dur, 1)})
+        for c in clips:
+            store.update(c["id"], meta={"merged_into": job_id})
+        store.transition(job_id, "rendering", "awaiting_approval")
+        P("finish", "done", detail=f"{dur:.0f} s compilation ready for review")
+    except Exception as e:
+        progress.fail_active(job_id, str(e))
+        store.transition(job_id, "rendering", "failed", error=str(e)[:500])
+        log.warning("compilation %s failed: %s", job_id, e)
 
 
 def run_due_schedules() -> int:
@@ -773,6 +944,7 @@ def run_due_schedules() -> int:
         except ValueError:
             due = True
         if due and store.transition(job["id"], "scheduled", "publishing"):
+            store.update(job["id"], meta={"posted_at": now.timestamp()})
             _dispatch("publish_clip_task", job["id"])
             n += 1
     return n
@@ -822,8 +994,9 @@ def publish_clip(job_id: str) -> dict:
         P = stepper("youtube")
         try:
             is_short = meta.get("format", "vertical") != "landscape" and float(meta.get("duration") or 0) <= 180
-            vid = sp.upload_youtube(video, job["title"] or "Clip", pkg["youtube_description"],
-                                    tags=pkg["youtube_tags"], shorts=is_short, thumbnail=cover, on_step=P)
+            vid = sp.upload_youtube(video, pkg.get("title") or job["title"] or "Clip", pkg["youtube_description"],
+                                    tags=pkg["youtube_tags"], shorts=is_short, thumbnail=cover, on_step=P,
+                                    category_id=pkg.get("youtube_category"))
             results["youtube_id"], results["youtube_short"] = vid, is_short
             store.update(job_id, meta={"youtube_id": vid, "youtube_short": is_short})
             P("visibility", detail="Asking YouTube who can see it…")
