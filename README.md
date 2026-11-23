@@ -30,7 +30,7 @@ Everything runs on your computer: speech-to-text with Whisper, and the AI writer
 
 | | |
 |---|---|
-| **Sources** | Video links (YouTube, Twitch, Kick, TikTok, X, Instagram, Reddit, direct .mp4/.m3u8), uploaded files, and live streams (clips are cut while the stream is still running) |
+| **Sources** | Video links (YouTube, Twitch, Kick, TikTok, X, Instagram, Reddit, direct .mp4/.m3u8), uploaded files, and live streams (clips are cut while the stream is still running, without recording all of it; see [How moments are found](#how-moments-are-found)) |
 | **Shapes** | Vertical 9:16, portrait 4:5, square 1:1 and landscape 16:9, in any mix per job |
 | **Finding moments** | Audio excitement plus on-screen motion, optionally re-ranked by the AI from what is said |
 | **Viral look** | Pop captions (the spoken word in yellow, key words in green), a hook title for the first 3 s, jump cuts (only real dead air, never silent action), zoom punch-ins, a progress bar and your watermark |
@@ -129,7 +129,20 @@ The sidebar has five pages: **Create**, **Clips**, **Earn**, **Publishing** and 
    - **Payoff tease:** the clip opens with 2 seconds of its best moment, under the hook, then plays from the start
    - **Slow-mo replay:** ends on a zoomed, slowed-down replay of the payoff; because the clip opens on the same moment, it loops smoothly (replays count as views)
    - **Background beat:** a quiet beat that ducks under speech. Put your own royalty-free/CC0 tracks (`.mp3 .wav .m4a`) in `data/music/` and ClipForge rotates through them; with none it uses a beat it generates itself. Never use commercial songs: Content ID mutes or blocks them
-5. Press **✦ Make clips** (or **● Start recording** for a live stream; press **■ Stop recording** on the job to end it).
+5. Press **✦ Make clips** (or **● Start watching** for a live stream; press **■ Stop watching** on the job to end it).
+
+### How moments are found
+
+ClipForge never needs the whole stream on disk:
+
+| Source | Signal | What is downloaded / kept |
+|---|---|---|
+| A finished YouTube video or an **ended live stream** (paste it under Link, or under Live: an ended stream switches over by itself) | YouTube's **Most replayed** graph (the curve above the progress bar showing what viewers rewatch). The highest peaks become the clips | Only those peaks plus a few seconds around each (for example 3 minutes of a 6-hour VOD) |
+| A stream that is **live right now** (YouTube or Twitch) | **Live chat**: a sudden jump in message speed (2.5x normal by default) or a flood of reactions ("LMAO", "KEKW", "💀", "no way", "clip it"). Chat reacts a few seconds after the moment, so most of the saved window is from before the spike | A **rolling buffer** of the last 5 minutes, overwritten as it goes. Only the window around each spike is saved; everything else is thrown away |
+| Live with no readable chat (Kick, chat turned off) | Sound and action: a 10-second piece much louder/busier than the last few minutes | The same rolling buffer |
+| Videos without a Most replayed graph (new or short videos, other sites, uploads) | Sound, laughter/shouting and on-screen action across the whole video (plus the AI's pick, if on) | The whole video |
+
+The job shows what it is watching, for example *"12 min watched · YouTube chat: 340 msgs/min (normal 90) · 2 clips · only the last 5 min on disk"*, and each live clip says why it was cut. Settings: `LIVE_BUFFER_S`, `LIVE_CHAT`, `LIVE_CHAT_RATIO`, `MOST_REPLAYED` (section 10).
 
 ### Watch the progress
 
@@ -371,7 +384,7 @@ Run these in the ClipForge folder with the environment active (`source .venv/bin
 | `python -m app.cli serve` | Starts everything: the web app, background workers, the Telegram bot and the scheduler. Options: `--host 0.0.0.0` (reachable from other devices on your network; set `API_TOKEN` first) and `--port 8000` |
 | `python -m app.cli telegram-setup` | Checks the bot token and links your Telegram account (stop `serve` first) |
 | `python -m app.cli clip SOURCE` | Clips a link or a local file without the web app. Options: `--formats vertical,landscape`, `--clips 3`, `--seconds 45`, `--title "..."` |
-| `python -m app.cli live URL --minutes 30` | Records a live stream for N minutes and clips highlights. Option: `--formats` |
+| `python -m app.cli live URL --minutes 30` | Watches a live stream for N minutes and clips the chat/audio spikes (keeps only a rolling buffer). Option: `--formats` |
 | `python -m app.cli poll` | Runs only the Telegram bot and the scheduler (used by Docker) |
 | `pkill -f "app.cli serve"` | Stops the app |
 | `tail -f data/serve.log` | Shows the live log |
@@ -393,6 +406,10 @@ Most things are set in the app. `.env` holds secrets and defaults; restart after
 | `HOOK_OVERLAY`, `JUMP_CUTS`, `ZOOM_PUNCH`, `PROGRESS_BAR`, `COVER_INTRO` | true | Default extras |
 | `PAYOFF_TEASE`, `PAYOFF_REPLAY`, `BEAT` | true | Payoff tease at the start, slow-mo replay at the end, background beat |
 | `BEAT_VOLUME` | 0.12 | Beat loudness before ducking (0 to 1) |
+| `MOST_REPLAYED` | true | Finished YouTube videos/streams: download only the peaks of the Most replayed graph |
+| `LIVE_BUFFER_S` / `LIVE_SEGMENT_S` | 300 / 10 | Live: seconds kept in the rolling buffer, and the size of each piece |
+| `LIVE_CHAT` / `LIVE_CHAT_RATIO` | true / 2.5 | Live: watch the chat, and how much faster than normal counts as a spike (lower = more clips) |
+| `LIVE_HIGHLIGHT_RATIO` | 1.6 | Live without chat: how much louder/busier than normal counts as a spike |
 | `WHISPER_MODEL` | small | tiny, base, small, medium, large-v3 |
 | `YOUTUBE_CATEGORY_ID` | 20 | Only a fallback: each clip gets the category that matches it (1 Film & Animation, 17 Sports, 20 Gaming, 22 People & Blogs, 23 Comedy, 24 Entertainment) |
 | `PUBLISH_SPACING_MIN` | 90 | Clips from the same video are posted at least this many minutes apart; 0 turns it off |

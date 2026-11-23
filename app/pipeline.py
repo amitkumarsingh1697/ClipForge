@@ -7,11 +7,12 @@ from __future__ import annotations
 
 import logging
 import statistics
+import time
 import traceback
 from pathlib import Path
 
 from app.config import get_settings
-from app.services import highlight_ai, ingest, llm, music, rights, seo, telegram_bot, transcriber, video_editor
+from app.services import highlight_ai, ingest, llm, moments, music, rights, seo, telegram_bot, transcriber, video_editor
 from app.utils import campaigns, progress, runtime_settings
 from app.utils.job_store import get_store
 
@@ -147,6 +148,9 @@ def ingest_source(job_id: str) -> list[str]:
         if job["source_type"] == "url":
             store.update(job_id, status="downloading")
             P("download", detail="Connecting to the site…")
+            done = _most_replayed(job_id, job, P)
+            if done is not None:
+                return done
             try:
                 raw, meta = ingest.download_url(job["source"], s.raw_dir, on_progress=P)
             except ValueError as e:
@@ -194,6 +198,65 @@ def ingest_source(job_id: str) -> list[str]:
         store.fail(job_id, f"{e}\n{traceback.format_exc()}")
         _notify(f"❌ Job {job_id} failed while ingesting: {str(e)[:400]}\nRetry it from the web UI.")
         return []
+
+
+def _most_replayed(job_id: str, job: dict, P) -> list[str] | None:
+    """YouTube's "Most replayed" graph: download only its peaks (not the whole video) and make a clip from
+    each. Returns the clip ids, or None when there is no graph (then the whole video is downloaded and
+    analysed as before)."""
+    s, store = get_settings(), get_store()
+    opts = job_options(job)
+    if not s.most_replayed or opts.get("most_replayed") is False:
+        return None
+    try:
+        info = ingest.probe_url(job["source"])
+    except Exception as e:
+        log.info("no metadata for %s: %s", job["source"], e)
+        return None
+    if info.get("is_live"):
+        return None  # download_url switches it to the live recorder
+    duration = float(info.get("duration") or 0)
+    clip_s = float(opts["clip_seconds"])
+    if duration < max(180.0, clip_s * 4):
+        return None  # short video: download it all and analyse it
+    peaks = moments.heatmap_peaks(info.get("heatmap"), duration, clip_s, int(opts["clips"]))
+    if not peaks:
+        return None
+    pad = 8.0
+    ranges = [(max(0.0, a - pad), min(duration, b + pad)) for a, b, _ in peaks]
+    got = sum(b - a for a, b in ranges)
+    title = job["title"] or info.get("title")
+    P("download", detail=f"Most replayed: downloading {len(ranges)} peak moments ({got / 60:.1f} min of "
+                         f"{duration / 60:.0f} min)…")
+    files = moments.download_sections(job["source"], ranges, s.raw_dir / job_id, on_progress=P)
+    meta = {k: info.get(k) for k in ("id", "title", "uploader", "duration", "webpage_url", "extractor")}
+    risk = rights.assess({k: info.get(k) for k in rights.RIGHTS_FIELDS}, "url")
+    store.update(job_id, raw_path=str(files[0]), title=title,
+                 meta={"source": meta, "rights": risk, "moment_source": "most_replayed",
+                       "heatmap_peaks": [{"start": a, "end": b, "replayed": v} for a, b, v in peaks]})
+    if risk["risk"] == "high":
+        _notify(f"{rights.summary_line(risk)} for '{title}'.\n" + "\n".join(f"• {r}" for r in risk["reasons"][:3]))
+    P("download", "done", detail=f"Downloaded only the {len(files)} most replayed parts ({got / 60:.1f} min)")
+    store.update(job_id, status="analyzing")
+    P("analyze", detail="Lining up each clip on its peak…")
+    clip_ids: list[str] = []
+    for n, (f, (a, b, v)) in enumerate(zip(files, peaks), 1):
+        try:
+            h = highlight_ai.find_highlights(f, s.temp_dir, target_s=clip_s, min_s=s.clip_min_s,
+                                             max_s=s.clip_max_s, top_n=1)[0]
+        except Exception as e:
+            log.warning("peak %s unreadable: %s", f.name, e)
+            continue
+        h.score = max(h.score, v * 3)
+        clip_ids += _make_clips(job_id, job, f, [h], title, opts,
+                                name_prefix=title if len(files) == 1 else f"{title} (part {n})")
+    P("analyze", "done", detail=f"{len(clip_ids)} moments from the Most replayed graph")
+    P("rank", "skipped", detail="YouTube viewers already picked these (Most replayed)")
+    P("clips", "done", detail=f"{len(clip_ids)} clip(s) queued for rendering")
+    store.update(job_id, status="done")
+    for cid in clip_ids:
+        _dispatch("render_clip_task", cid)
+    return clip_ids
 
 
 def _transcript(raw: Path, start: float, end: float, rs: dict) -> list:
@@ -1167,50 +1230,151 @@ def check_text(url: str) -> str:
 
 
 # ---------------------------------------------------------------- live
+LIVE_STAGES = [
+    ("connect", "Connect to the stream"),
+    ("watch", "Watch chat & audio for spikes (only the last few minutes are kept)"),
+    ("clips", "Save the moments as clips"),
+]
+
+
 def record_live(job_id: str, realtime_input: bool = False) -> list[str]:
-    """Record a live stream in segments; every segment that is much louder/busier
-    than the stream's recent baseline becomes a clip job while recording continues."""
+    """Watch a live stream without recording all of it.
+
+    A rolling buffer keeps only the last LIVE_BUFFER_S seconds. Live chat (YouTube/Twitch) is watched for
+    spikes (sudden speed-ups, floods of "LMAO"/"💀"/"clip it"); the buffer window around each spike becomes a
+    clip and the rest is overwritten. Without readable chat, a segment much louder/busier than the recent
+    baseline is the spike. A stream that has already ended goes to the normal link path (Most replayed)."""
     s, store = get_settings(), get_store()
     job = store.get(job_id)
     out_dir = s.live_dir / job_id
     opts = job_options(job)
     clip_ids: list[str] = []
+    clip_s = float(opts["clip_seconds"])
+    P = progress.Stepper(job_id)
+    progress.start(job_id, LIVE_STAGES)
+    buf = chat = None
     try:
         store.update(job_id, status="recording")
-        try:
-            store.update(job_id, meta={"rights": rights.check_url(job["source"])})
-        except Exception as e:
-            log.info("rights check skipped for live %s: %s", job_id, e)
-        proc = ingest.record_live(job["source"], out_dir, segment_s=s.live_segment_s,
-                                  max_s=s.live_max_hours * 3600, realtime_input=realtime_input)
+        P("connect", detail="Looking up the stream…")
+        info: dict = {}
+        src = job["source"]
+        if str(src).startswith("http"):
+            try:
+                info = ingest.probe_url(src)
+                store.update(job_id, title=job["title"] or info.get("title"),
+                             meta={"rights": rights.check_url(src)})
+                job["title"] = job["title"] or info.get("title")
+            except Exception as e:
+                log.info("stream metadata skipped for %s: %s", job_id, e)
+            if info.get("live_status") in ("was_live", "not_live", "post_live"):
+                P("connect", "done", detail="The stream has ended: clipping the recording from its Most replayed parts")
+                store.update(job_id, source_type="url", status="queued")
+                _dispatch("ingest_source_task", job_id)
+                return []
+        urls, headers = ingest.resolve_streams(src)
+        buf = moments.RollingBuffer(urls, headers, out_dir, segment_s=min(int(s.live_segment_s), 20),  # old .env: 120 keep_s=s.live_buffer_s,
+                                    max_s=s.live_max_hours * 3600, realtime_input=realtime_input)
+        if s.live_chat and opts.get("live_chat", True):
+            chat = moments.chat_for(str(src), info, out_dir / "chat")
+            if chat:
+                chat.start()
+        P("connect", "done", detail=f"Connected. Keeping only the last {s.live_buffer_s // 60} min"
+                                    + (f", watching {chat.name}" if chat else ", no chat for this site: using audio"))
+        det = moments.SpikeDetector(ratio=s.live_chat_ratio)
+        pending: list[tuple[float, float, str, float]] = []  # (from, to, reason, score) waiting for the post-roll
+        history: list[float] = []
+        t_start, last_note, n_spikes = time.time(), 0.0, 0
 
-        def stop() -> bool:
+        def stop_requested() -> bool:
             return bool((store.get(job_id) or {}).get("meta", {}).get("stop_requested"))
 
-        history: list[float] = []
-        for seg in ingest.finished_segments(out_dir, proc, poll_s=min(5.0, s.live_segment_s / 4), should_stop=stop):
+        def chat_usable() -> bool:
+            if not chat or chat.error:
+                return False
+            return bool(chat.messages) or time.time() - t_start < 120  # give it 2 min to show messages
+
+        def save(a: float, b: float, reason: str, score: float) -> None:
+            nonlocal n_spikes
+            n_spikes += 1
+            got = buf.save_window(a, b, out_dir / f"moment_{n_spikes:03d}.mp4")
+            if not got:
+                return
+            f, ws, we = got
             try:
-                score = highlight_ai.peak_score(seg, s.temp_dir)
+                h = highlight_ai.find_highlights(f, s.temp_dir, target_s=clip_s, min_s=s.clip_min_s,
+                                                 max_s=s.clip_max_s, top_n=1)[0]
             except Exception as e:
-                log.warning("segment %s unreadable: %s", seg.name, e)
-                continue
-            baseline = statistics.median(history[-10:]) if len(history) >= 3 else None
-            history.append(score)
-            is_hl = baseline is not None and score > s.live_highlight_ratio * baseline
-            log.info("live %s %s score=%.4f baseline=%s highlight=%s", job_id, seg.name, score, baseline, is_hl)
-            if not is_hl:
-                continue
-            h = highlight_ai.find_highlights(seg, s.temp_dir, opts["clip_seconds"], s.clip_min_s, s.clip_max_s,
-                                             top_n=1)[0]
-            h.score = score
-            new = _make_clips(job_id, job, seg, [h], job["title"], opts,
+                log.warning("moment %s unreadable: %s", f.name, e)
+                return
+            h.score = max(h.score, score)
+            new = _make_clips(job_id, job, f, [h], job["title"], opts,
                               name_prefix=f"{job['title'] or 'Live highlight'} #{len(clip_ids) // len(opts['formats']) + 1}")
-            clip_ids += new
+            t0 = buf.first_wall
+            for cid in new:
+                store.update(cid, meta={"live_reason": reason, "stream_offset_s": round(max(0.0, a - t0), 1)})
+            clip_ids.extend(new)
             for cid in new:
                 _dispatch("render_clip_task", cid)
-        store.update(job_id, status="done", meta={"segments": len(history), "clips": len(clip_ids)})
+            P("clips", detail=f"{len(clip_ids)} clip(s) so far · last: {reason}")
+            log.info("live %s moment %s (%s) at %.0f s into the stream", job_id, f.name, reason, a - t0)
+
+        P("watch", detail="Warming up: learning what normal chat speed looks like…")
+        while True:
+            for seg in buf.poll():
+                if chat_usable():
+                    continue
+                try:  # fallback signal: this segment much louder/busier than the recent ones
+                    score = highlight_ai.peak_score(seg["file"], s.temp_dir)
+                except Exception as e:
+                    log.warning("segment %s unreadable: %s", seg["file"].name, e)
+                    continue
+                baseline = statistics.median(history[-10:]) if len(history) >= 3 else None
+                history.append(score)
+                if baseline is not None and score > s.live_highlight_ratio * baseline:
+                    mid = (seg["wall_start"] + seg["wall_end"]) / 2
+                    if not pending or mid - pending[-1][1] > 5:
+                        pending.append((mid - clip_s / 2 - 6, mid + clip_s / 2 + 6,
+                                        f"audio/action {score / baseline:.1f}x louder", score / baseline))
+            if chat_usable() and chat.messages:
+                sp = det.check(chat.messages)
+                if sp:  # chat reacts a few seconds after the moment, so most of the window is before it
+                    pending.append((sp.at - clip_s * 0.75 - 8, sp.at + clip_s * 0.25 + 6, sp.reason, sp.score))
+            ready = [p for p in pending if buf.latest_end >= p[1] or not buf.running]
+            for p in ready:
+                pending.remove(p)
+                save(*p)
+            now = time.time()
+            if now - last_note > 5:
+                last_note = now
+                sig = (f"{chat.name}: {det.last_rate * 60:.0f} msgs/min (normal {det.baseline * 60:.0f})"
+                       if chat_usable() and chat.messages else
+                       ("audio/action levels" + (f" ({chat.name} unavailable)" if chat else "")))
+                P("watch", detail=f"{(now - t_start) / 60:.0f} min watched · {sig} · {len(clip_ids)} clip(s) · "
+                                  f"only the last {s.live_buffer_s // 60} min on disk")
+            if not buf.running:
+                if buf.count == 0:
+                    raise RuntimeError("the stream recorder stopped before any video arrived: "
+                                       + (buf.error() or "no details"))
+                break
+            if stop_requested():
+                buf.stop()
+                for p in pending:
+                    save(*p)
+                break
+            time.sleep(1.0 if not realtime_input else 0.5)
+        P("watch", "done", detail=f"Watched {(time.time() - t_start) / 60:.0f} min, {buf.total_s / 60:.0f} min of video seen")
+        P("clips", "done", detail=f"{len(clip_ids)} clip(s) from the spikes")
+        store.update(job_id, status="done", meta={"segments": buf.count, "clips": len(clip_ids),
+                                                  "moment_source": "live chat" if chat and chat.messages else "audio"})
     except Exception as e:
         log.exception("live recording failed")
+        progress.fail_active(job_id, str(e))
         store.fail(job_id, f"{e}\n{traceback.format_exc()}")
         _notify(f"❌ Live job {job_id} stopped: {e}")
+    finally:
+        if chat:
+            chat.stop()
+        if buf:
+            buf.stop()
+            buf.cleanup()  # the buffer is thrown away; only the saved moments stay
     return clip_ids

@@ -273,7 +273,7 @@ dialog::backdrop { background: rgba(10, 5, 25, .55); backdrop-filter: blur(3px);
         <div id="src-url"><label class="field">YouTube, Twitch, Kick, TikTok, X, Instagram, Reddit or a direct video URL</label>
           <div class="inline"><input type="url" id="url" placeholder="https://..."><button class="btn" id="checkBtn" type="button">🛡 Check copyright</button></div></div>
         <div id="src-upload" class="hidden"><label class="field">Video file (.mp4 .mov .mkv .webm)</label><input type="file" id="file" accept="video/*"></div>
-        <div id="src-live" class="hidden"><label class="field">Live channel or stream URL. Records and cuts clips whenever something exciting happens</label>
+        <div id="src-live" class="hidden"><label class="field">Live channel or stream URL. ClipForge watches the live chat (and the sound) for spikes and saves only those moments; just the last 5 minutes are kept on disk. An ended stream is clipped from its Most replayed parts</label>
           <div class="inline"><input type="url" id="live" placeholder="https://www.twitch.tv/channel"><button class="btn" id="checkLiveBtn" type="button">🛡 Check copyright</button></div></div>
         <div id="riskBox" class="mt hidden"></div>
       </div>
@@ -575,7 +575,7 @@ document.querySelectorAll("#srcTabs button").forEach((b) => b.onclick = () => {
   document.querySelectorAll("#srcTabs button").forEach((x) => x.classList.toggle("active", x === b));
   source = b.dataset.src;
   ["url", "upload", "live"].forEach((s) => $("src-" + s).classList.toggle("hidden", s !== source));
-  $("go").textContent = source === "live" ? "● Start recording" : "✦ Make clips";
+  $("go").textContent = source === "live" ? "● Start watching" : "✦ Make clips";
   $("riskBox").classList.add("hidden");
 });
 function renderFormats(defaults) {
@@ -650,7 +650,7 @@ $("go").onclick = async () => {
 
 /* ---------- clips ---------- */
 const LABEL = { awaiting_approval: "ready for review", downloading: "downloading", analyzing: "finding highlights",
-  rendering: "rendering", recording: "recording live", publishing: "publishing", approved: "approved (saved)", queued: "queued", scheduled: "scheduled" };
+  rendering: "rendering", recording: "watching live", publishing: "publishing", approved: "approved (saved)", queued: "queued", scheduled: "scheduled" };
 
 const ICON = { done: "✓", failed: "✕", warn: "!", skipped: "–", pending: "", active: "" };
 function secs(st) { if (!st.t0) return ""; const d = (st.t1 || Date.now() / 1000) - st.t0; return d < 1 ? "" : d >= 60 ? `${Math.floor(d / 60)}m ${Math.round(d % 60)}s` : `${Math.round(d)}s`; }
@@ -729,7 +729,7 @@ function clipHtml(c) {
 function jobHead(j) {
   const kind = { url: "Link", upload: "Upload", live: "Live" }[j.source_type] || j.source_type;
   let extra = "";
-  if (j.source_type === "live" && j.status === "recording") extra = `<button class="btn bad" data-act="stop" data-id="${j.id}">■ Stop recording</button>`;
+  if (j.source_type === "live" && j.status === "recording") extra = `<button class="btn bad" data-act="stop" data-id="${j.id}">■ Stop watching</button>`;
   if (j.status === "failed") extra = `<button class="btn" data-act="retry" data-id="${j.id}">Retry</button>`;
   const ready = j.clips.filter((c) => c.output_path && !(c.meta || {}).compilation_of && ["awaiting_approval", "approved", "scheduled"].includes(c.status));
   if (ready.length >= 2) extra += `<button class="btn" data-act="compile" data-id="${j.id}" title="Join the clips waiting for review into one longer video, instead of posting near-duplicates minutes apart">🎞 Merge ${ready.length} clips into a compilation</button>`;
